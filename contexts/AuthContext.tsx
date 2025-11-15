@@ -32,6 +32,8 @@ export type Profile = {
   level: number;
   created_at?: string;
   onboarding_complete?: boolean;
+  avatar_template_id?: string | null;
+  avatar_config?: AvatarConfig | null;
 };
 
 export type RegisterPayload = {
@@ -44,6 +46,8 @@ export type RegisterPayload = {
   role?: AppRole; // si no viene, se usará 'USER'
 };
 
+type EligibilityFlags = { age_gte_18: boolean; country_CO: boolean };
+
 type AuthContextType = {
   user: User | null;
   profile: Profile | null;
@@ -53,7 +57,57 @@ type AuthContextType = {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<Profile | null>;
+
+  // test de adultez
+  getEligibilityFlags: () => EligibilityFlags;
+  markOnboardingComplete: (done: boolean) => Promise<void>;
+
+  // misiones
+  getMissionsAvailable: () => Promise<Mission[]>;
+  getMissionsUnlocked: () => Promise<Mission[]>;
+  getUserMissions: () => Promise<UserMission[]>;
+  takeMission: (missionId: string) => Promise<void>;
+  updateMissionStatus: (missionId: string, status: UserMission['status']) => Promise<void>;
+  completeMission: (missionId: string) => Promise<void>;
 };
+
+export type AvatarConfig = {
+  skin_base?: string;
+  skin_overlay?: string;
+  eyes?: string;
+  outline?: string;
+};
+
+export type Mission = {
+  id: string;
+  slug: string;
+  title: string;
+  description?: string | null;
+  category?: string | null;
+  difficulty?: number | null;
+  points: number;
+  is_system: boolean;
+  active: boolean;
+  start_at?: string | null;
+  end_at?: string | null;
+};
+
+export type UserMission = {
+  id: string;
+  user_id: string;
+  mission_id: string;
+  status: 'pendiente' | 'en_curso' | 'completada' | 'cancelada' | 'vencida';
+  started_at?: string | null;
+  completed_at?: string | null;
+  points_awarded: number;
+  feedback?: string | null;
+};
+
+
+declare module './AuthContext' {} // (no hace nada; sólo marca el bloque)
+
+// Agrega estos campos a Profile:
+declare global {}
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -295,6 +349,133 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setProfile(null);
   }, []);
 
+  /* ----------Banderas para el test y marcar onboarding---------- */
+  function computeAgeGte18(birth_date?: string | null) {
+    if (!birth_date) return false;
+    const bd = new Date(birth_date);
+    const now = new Date();
+    const age =
+      now.getFullYear() - bd.getFullYear() -
+      (now < new Date(now.getFullYear(), bd.getMonth(), bd.getDate()) ? 1 : 0);
+    return age >= 18;
+  }
+
+  const getEligibilityFlags = useCallback((): EligibilityFlags => {
+    return {
+      age_gte_18: computeAgeGte18(profile?.birth_date ?? null),
+      // cuando guardes 'country' en profiles, cámbialo a (profile?.country === 'CO')
+      country_CO: true,
+    };
+  }, [profile?.birth_date]);
+
+  async function markOnboardingComplete(done: boolean) {
+    if (!profile?.id) return;
+    const { error } = await supabase
+      .from('profiles')
+      .update({ onboarding_complete: done })
+      .eq('id', profile.id);
+    if (!error) {
+      setProfile((prev) => (prev ? { ...prev, onboarding_complete: done } : prev));
+    } else {
+      console.log('[Auth] markOnboardingComplete error:', error);
+    }
+  }
+  /* Operaciones de misiones */
+  const getMissionsAvailable = useCallback(async (): Promise<Mission[]> => {
+    const { data, error } = await supabase
+      .from('v_missions_available')
+      .select('*')
+      .order('category', { ascending: true })
+      .order('title', { ascending: true });
+    if (error) throw error;
+    return (data as Mission[]) ?? [];
+  }, []);
+
+  const getMissionsUnlocked = useCallback(async (): Promise<Mission[]> => {
+    const { data, error } = await supabase
+      .from('v_missions_unlocked')
+      .select('*')
+      .order('category', { ascending: true })
+      .order('title', { ascending: true });
+    if (error) throw error;
+    return (data as Mission[]) ?? [];
+  }, []);
+
+  const getUserMissions = useCallback(async (): Promise<UserMission[]> => {
+    if (!user) return [];
+    const { data, error } = await supabase
+      .from('user_misiones')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data as UserMission[]) ?? [];
+  }, [user]);
+
+  const takeMission = useCallback(async (missionId: string) => {
+    if (!user) throw new Error('No user');
+    const { error } = await supabase
+      .from('user_misiones')
+      .insert({
+        user_id: user.id,
+        mission_id: missionId,
+        status: 'pendiente',
+        points_awarded: 0,
+      });
+    if (error) throw error;
+  }, [user]);
+
+  const updateMissionStatus = useCallback(async (missionId: string, status: UserMission['status']) => {
+    if (!user) throw new Error('No user');
+    const patch: any = { status };
+    if (status === 'en_curso') patch.started_at = new Date().toISOString();
+    const { error } = await supabase
+      .from('user_misiones')
+      .update(patch)
+      .eq('user_id', user.id)
+      .eq('mission_id', missionId);
+    if (error) throw error;
+  }, [user]);
+
+  const completeMission = useCallback(async (missionId: string) => {
+    if (!user) throw new Error('No user');
+
+    // 1) Tomar puntos de catálogo
+    const { data: missionRow, error: mErr } = await supabase
+      .from('missions')
+      .select('points')
+      .eq('id', missionId)
+      .maybeSingle();
+    if (mErr) throw mErr;
+    const pts = (missionRow?.points as number) ?? 0;
+
+    // 2) Marcar completada y registrar puntos en user_misiones
+    const { error: updErr } = await supabase
+      .from('user_misiones')
+      .update({
+        status: 'completada',
+        completed_at: new Date().toISOString(),
+        points_awarded: pts,
+      })
+      .eq('user_id', user.id)
+      .eq('mission_id', missionId);
+    if (updErr) throw updErr;
+
+    // 3) Opcional: sumar puntos al perfil (si tu economía sube puntos globales)
+    const { error: profErr } = await supabase
+      .from('profiles')
+      .update({ points: (profile?.points ?? 0) + pts })
+      .eq('id', user.id);
+    if (profErr) {
+      console.log('[Auth] completeMission profile points warn:', profErr);
+    } else {
+      // refresca en memoria
+      setProfile((p) => (p ? { ...p, points: (p.points ?? 0) + pts } : p));
+    }
+  }, [user, profile?.points]);
+
+
+
   /* ---------- valor del contexto ---------- */
   const value = useMemo(
     () => ({
@@ -306,12 +487,34 @@ export function AuthProvider({ children }: PropsWithChildren) {
       login,
       logout,
       refreshProfile,
+
+      getEligibilityFlags,
+      markOnboardingComplete,
+
+      getMissionsAvailable,
+      getMissionsUnlocked,
+      getUserMissions,
+      takeMission,
+      updateMissionStatus,
+      completeMission,
     }),
-    [user, profile, session, initializing, register, login, logout, refreshProfile]
+    [user, profile, session, initializing,
+    register, login, logout, refreshProfile,
+    getEligibilityFlags, markOnboardingComplete,
+    getMissionsAvailable, getMissionsUnlocked, getUserMissions,
+    takeMission, updateMissionStatus, completeMission,
+    ]
   );
+
+
+
+
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
+
+
+
 
 /* =========================================================
    Hook público

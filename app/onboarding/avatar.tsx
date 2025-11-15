@@ -1,14 +1,16 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Modal, Button } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Modal, Button, Alert } from 'react-native';
 import { catalog_tmplx01 } from '../data/avatarCatalog';
 import type { AvatarLayer } from '../data/avatarCatalog';
 import { AvatarPreview } from '../../components/AvatarPreview';
 import { VariantPicker } from '../../components/VariantPicker';
-import { supabase } from '../../utils/supabase'; // tu cliente
+import { supabase } from '../../utils/supabase';
+import { router } from 'expo-router';
 
 export default function AvatarScreen() {
   const template = catalog_tmplx01; // por ahora tenemos 1
   const [editorOpen, setEditorOpen] = useState(false);
+  const [navigating, setNavigating] = useState(false);
 
   const [selected, setSelected] = useState<Record<AvatarLayer, string>>({
     skin_base: template.defaults.skin_base,
@@ -21,7 +23,6 @@ export default function AvatarScreen() {
     setSelected(prev => ({ ...prev, [layer]: id }));
 
   const onSaveToDb = async () => {
-    // Guarda en profiles (ver SQL abajo para columnas nuevas)
     const user = (await supabase.auth.getUser()).data.user;
     if (!user) return;
     const payload = {
@@ -34,14 +35,25 @@ export default function AvatarScreen() {
       .eq('id', user.id);
     if (error) {
       console.error(error);
-      alert('Error guardando avatar');
+      Alert.alert('Error', 'Error guardando avatar');
     } else {
-      alert('Avatar guardado');
+      Alert.alert('Listo', 'Avatar guardado');
       setEditorOpen(false);
     }
   };
 
-  const gridTemplates = useMemo(() => [template], []);
+  const onGoToTest = () => {
+    // Siempre permitido (haya guardado o no)
+    setNavigating(true);
+    Alert.alert('Continuando', 'Pasando al test de adultez...');
+    // pequeña pausa opcional para que se vea el feedback
+    setTimeout(() => {
+      router.push('/onboarding/adulthood');
+      setNavigating(false);
+    }, 250);
+  };
+
+  const gridTemplates = useMemo(() => [template], [template]);
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -56,6 +68,13 @@ export default function AvatarScreen() {
           </View>
         ))}
       </View>
+
+      {/* CTA para continuar al test (siempre habilitado) */}
+      <View style={{ height: 8 }} />
+      <Button
+        title={navigating ? 'Abriendo test...' : 'Ir al test de adultez'}
+        onPress={onGoToTest}
+      />
 
       {/* Modal editor: pickers por capa */}
       <Modal visible={editorOpen} animationType="slide">
