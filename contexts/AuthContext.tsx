@@ -57,6 +57,8 @@ type AuthContextType = {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<Profile | null>;
+  updateProfile: (updates: Partial<Pick<Profile, 'name' | 'last_name' | 'gender' | 'birth_date'>>) => Promise<void>;
+  updateDarkMode: (darkMode: boolean) => Promise<void>;
 
   // test de adultez
   getEligibilityFlags: () => EligibilityFlags;
@@ -474,7 +476,65 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }, [user, profile?.points]);
 
+  /* ---------- updateProfile: actualizar campos básicos del perfil ---------- */
+  const updateProfile = useCallback(
+    async (updates: Partial<Pick<Profile, 'name' | 'last_name' | 'gender' | 'birth_date'>>) => {
+      if (!user || !profile) {
+        throw new Error('No hay usuario o perfil disponible');
+      }
 
+      // Validar género si se proporciona
+      if (updates.gender !== undefined) {
+        const validGenders: AppGender[] = ['Masculino', 'Femenino', 'Otro'];
+        if (updates.gender !== null && !validGenders.includes(updates.gender)) {
+          throw new Error('Género inválido');
+        }
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update(updates)
+        .eq('id', user.id);
+
+      if (error) {
+        console.log('[Auth] updateProfile error:', error);
+        throw error;
+      }
+
+      // Actualizar el perfil en memoria
+      const updatedProfile = await fetchProfile(user.id);
+      if (updatedProfile) {
+        setProfile(updatedProfile);
+      }
+    },
+    [user, profile, fetchProfile]
+  );
+
+  /* ---------- updateDarkMode: actualizar modo oscuro ---------- */
+  const updateDarkMode = useCallback(
+    async (darkMode: boolean) => {
+      if (!user) {
+        throw new Error('No hay usuario disponible');
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ dark_mode: darkMode })
+        .eq('id', user.id);
+
+      if (error) {
+        console.log('[Auth] updateDarkMode error:', error);
+        throw error;
+      }
+
+      // Actualizar el perfil en memoria
+      const updatedProfile = await fetchProfile(user.id);
+      if (updatedProfile) {
+        setProfile(updatedProfile);
+      }
+    },
+    [user, fetchProfile]
+  );
 
   /* ---------- valor del contexto ---------- */
   const value = useMemo(
@@ -487,6 +547,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       login,
       logout,
       refreshProfile,
+      updateProfile,
+      updateDarkMode,
 
       getEligibilityFlags,
       markOnboardingComplete,
@@ -499,7 +561,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       completeMission,
     }),
     [user, profile, session, initializing,
-    register, login, logout, refreshProfile,
+    register, login, logout, refreshProfile, updateProfile, updateDarkMode,
     getEligibilityFlags, markOnboardingComplete,
     getMissionsAvailable, getMissionsUnlocked, getUserMissions,
     takeMission, updateMissionStatus, completeMission,

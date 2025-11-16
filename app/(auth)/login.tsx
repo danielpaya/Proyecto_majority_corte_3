@@ -55,7 +55,7 @@ export default function LoginScreen() {
         router.replace('/onboarding/avatar');
       } else {
         Alert.alert('Inicio de sesión exitoso', 'Bienvenido a Majority Quest 🎯');
-        router.replace('/main/home');
+        router.replace('/main/misiones');
       }
     } catch (error: any) {
       console.log('[Login] error:', error);
