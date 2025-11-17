@@ -8,18 +8,18 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth, type FontSize } from '../../contexts/AuthContext';
 
 export default function ConfiguracionScreen() {
-  const { profile, updateDarkMode, refreshProfile, logout } = useAuth();
+  const { profile, updateDarkMode, updateFontSize, refreshProfile, logout } = useAuth();
   const alert = useCustomAlert();
   const router = useRouter();
   const theme = useColorScheme();
@@ -27,11 +27,13 @@ export default function ConfiguracionScreen() {
 
   const [darkMode, setDarkMode] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
+  const [fontSize, setFontSize] = useState<FontSize>('medium');
 
   // Cargar configuración del perfil
   useEffect(() => {
     if (profile) {
       setDarkMode(profile.dark_mode ?? false);
+      setFontSize(profile.font_size ?? 'medium');
     }
   }, [profile]);
 
@@ -52,6 +54,30 @@ export default function ConfiguracionScreen() {
       await alert.show({ title: 'Error', message: error.message ?? 'No se pudo actualizar la configuración', buttons: [{ text: 'OK' }] });
       // Revertir el cambio si falla
       setDarkMode(!value);
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  const handleFontSizeChange = async (value: FontSize) => {
+    if (value === fontSize) return;
+    try {
+      setSavingConfig(true);
+      await updateFontSize(value);
+      setFontSize(value);
+      await refreshProfile();
+      await alert.show({
+        title: 'Éxito',
+        message: 'Tamaño de letra actualizado correctamente.',
+        buttons: [{ text: 'OK' }],
+      });
+    } catch (error: any) {
+      console.error('[Configuración] Error al actualizar tamaño de letra:', error);
+      await alert.show({
+        title: 'Error',
+        message: error.message ?? 'No se pudo actualizar el tamaño de letra',
+        buttons: [{ text: 'OK' }],
+      });
     } finally {
       setSavingConfig(false);
     }
@@ -127,6 +153,57 @@ export default function ConfiguracionScreen() {
                 trackColor={{ false: '#767577', true: Colors[theme].tint }}
                 thumbColor={darkMode ? '#fff' : '#f4f3f4'}
               />
+            </View>
+          </ThemedView>
+        </ThemedView>
+
+        {/* Tamaño de letra */}
+        <ThemedView style={styles.section}>
+          <ThemedText type="subtitle" style={styles.sectionTitle}>
+            Tamaño de letra
+          </ThemedText>
+
+          <ThemedView
+            style={[styles.configOption, { borderColor: isDark ? '#2a2a3e' : '#e0e0e0' }]}
+            lightColor="#fafafa"
+            darkColor="#1a1a2e">
+            <View style={styles.configOptionContent}>
+              <View style={styles.configOptionInfo}>
+                <MaterialIcons
+                  name="text-fields"
+                  size={24}
+                  color={isDark ? Colors.dark.icon : Colors.light.icon}
+                />
+                <View style={styles.configOptionText}>
+                  <ThemedText type="defaultSemiBold" style={styles.configOptionTitle}>
+                    Tamaño de letra
+                  </ThemedText>
+                  <ThemedText style={styles.configOptionDescription}>
+                    Ajusta el tamaño del texto en los botones principales
+                  </ThemedText>
+                </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <ThemedButton
+                  title="Pequeña"
+                  onPress={() => handleFontSizeChange('small')}
+                  disabled={savingConfig}
+                  style={{ opacity: fontSize === 'small' ? 1 : 0.6, paddingHorizontal: 10 }}
+                />
+                <ThemedButton
+                  title="Media"
+                  onPress={() => handleFontSizeChange('medium')}
+                  disabled={savingConfig}
+                  style={{ opacity: fontSize === 'medium' ? 1 : 0.6, paddingHorizontal: 10 }}
+                />
+                <ThemedButton
+                  title="Grande"
+                  onPress={() => handleFontSizeChange('large')}
+                  disabled={savingConfig}
+                  style={{ opacity: fontSize === 'large' ? 1 : 0.6, paddingHorizontal: 10 }}
+                />
+              </View>
             </View>
           </ThemedView>
         </ThemedView>

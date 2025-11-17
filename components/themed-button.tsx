@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 
 import { Colors } from '@/constants/theme';
+import { useAuth } from '@/contexts/AuthContext';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 type ThemedButtonProps = PressableProps & {
@@ -28,6 +29,11 @@ export function ThemedButton({
   const theme = useColorScheme();
   const isDark = theme === 'dark';
   const isDisabled = disabled || loading;
+
+  const { profile } = useAuth();
+  const fontPref = profile?.font_size ?? 'medium';
+
+  const fontSize = fontPref === 'small' ? 13 : fontPref === 'large' ? 17 : 15;
 
   let backgroundColor = isDisabled
     ? isDark
@@ -91,7 +97,7 @@ export function ThemedButton({
       {loading ? (
         <ActivityIndicator color={textColor} />
       ) : (
-        <Text style={[styles.label, { color: textColor }]}>{title}</Text>
+        <Text style={[styles.label, { color: textColor, fontSize }]}>{title}</Text>
       )}
     </Pressable>
   );

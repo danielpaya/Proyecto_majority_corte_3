@@ -1,15 +1,15 @@
 // contexts/AuthContext.tsx
+import type { Session, User } from '@supabase/supabase-js';
 import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  PropsWithChildren,
+    createContext,
+    PropsWithChildren,
+    useCallback,
+    useContext,
+    useEffect,
+    useMemo,
+    useState,
 } from 'react';
 import { supabase } from '../utils/supabase';
-import type { Session, User } from '@supabase/supabase-js';
 
 /* =========================================================
    Tipos básicos
@@ -17,6 +17,7 @@ import type { Session, User } from '@supabase/supabase-js';
 
 export type AppRole = 'USER' | 'ADMIN';
 export type AppGender = 'Masculino' | 'Femenino' | 'Otro';
+export type FontSize = 'small' | 'medium' | 'large';
 
 export type Profile = {
   id: string;
@@ -34,6 +35,7 @@ export type Profile = {
   onboarding_complete?: boolean;
   avatar_template_id?: string | null;
   avatar_config?: AvatarConfig | null;
+  font_size?: FontSize;
 };
 
 export type RegisterPayload = {
@@ -59,6 +61,7 @@ type AuthContextType = {
   refreshProfile: () => Promise<Profile | null>;
   updateProfile: (updates: Partial<Pick<Profile, 'name' | 'last_name' | 'gender' | 'birth_date'>>) => Promise<void>;
   updateDarkMode: (darkMode: boolean) => Promise<void>;
+  updateFontSize: (fontSize: FontSize) => Promise<void>;
 
   // test de adultez
   getEligibilityFlags: () => EligibilityFlags;
@@ -175,6 +178,7 @@ async function upsertProfileFromUser(
     level: existing?.level ?? 1,
     onboarding_complete: existing?.onboarding_complete ?? false,
     created_at: existing?.created_at,
+    font_size: existing?.font_size ?? 'medium',
   };
 
   const { error } = await supabase
@@ -536,6 +540,35 @@ export function AuthProvider({ children }: PropsWithChildren) {
     [user, fetchProfile]
   );
 
+  const updateFontSize = useCallback(
+    async (fontSize: FontSize) => {
+      if (!user) {
+        throw new Error('No hay usuario disponible');
+      }
+
+      const valid: FontSize[] = ['small', 'medium', 'large'];
+      if (!valid.includes(fontSize)) {
+        throw new Error('Tamaño de fuente inválido');
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ font_size: fontSize })
+        .eq('id', user.id);
+
+      if (error) {
+        console.log('[Auth] updateFontSize error:', error);
+        throw error;
+      }
+
+      const updatedProfile = await fetchProfile(user.id);
+      if (updatedProfile) {
+        setProfile(updatedProfile);
+      }
+    },
+    [user, fetchProfile]
+  );
+
   /* ---------- valor del contexto ---------- */
   const value = useMemo(
     () => ({
@@ -549,6 +582,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       refreshProfile,
       updateProfile,
       updateDarkMode,
+      updateFontSize,
 
       getEligibilityFlags,
       markOnboardingComplete,
@@ -560,11 +594,26 @@ export function AuthProvider({ children }: PropsWithChildren) {
       updateMissionStatus,
       completeMission,
     }),
-    [user, profile, session, initializing,
-    register, login, logout, refreshProfile, updateProfile, updateDarkMode,
-    getEligibilityFlags, markOnboardingComplete,
-    getMissionsAvailable, getMissionsUnlocked, getUserMissions,
-    takeMission, updateMissionStatus, completeMission,
+    [
+      user,
+      profile,
+      session,
+      initializing,
+      register,
+      login,
+      logout,
+      refreshProfile,
+      updateProfile,
+      updateDarkMode,
+      updateFontSize,
+      getEligibilityFlags,
+      markOnboardingComplete,
+      getMissionsAvailable,
+      getMissionsUnlocked,
+      getUserMissions,
+      takeMission,
+      updateMissionStatus,
+      completeMission,
     ]
   );
 
