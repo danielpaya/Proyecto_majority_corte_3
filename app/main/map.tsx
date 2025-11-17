@@ -1,8 +1,9 @@
 import Constants from 'expo-constants';
 import * as Location from "expo-location";
-import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Dimensions, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Animated, Dimensions, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { WebView } from "react-native-webview";
+import { useLocalSearchParams } from 'expo-router';
 import { useAuth } from "../../contexts/AuthContext";
 import { createSignedUrlForPath, supabase } from '../../utils/supabase';
 
@@ -15,15 +16,17 @@ export default function MapScreen() {
   const { profile } = useAuth();
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
-  const [usedFallback, setUsedFallback] = useState(false);
   const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
   const windowHeight = Dimensions.get('window').height;
   const sheetHeight = Math.round(windowHeight / 3);
   const sheetAnim = useRef(new Animated.Value(sheetHeight)).current;
-  const [currentRoute, setCurrentRoute] = useState<{ coords: Coord[]; origin: Coord; dest: Coord; distance: number } | null>(null);
+  const [currentRoute, setCurrentRoute] = useState<{ coords: Coord[]; origin: Coord; dest: Coord; distance: number; label?: string | null } | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [mode, setMode] = useState<'walk'|'car'|'moto'>('walk');
   const [followUser, setFollowUser] = useState<boolean>(true);
+  const params = useLocalSearchParams<{ missionLat?: string | string[]; missionLng?: string | string[]; missionName?: string | string[]; missionToken?: string | string[] }>();
+  const pendingMissionRef = useRef<{ lat: number; lng: number; label?: string | null } | null>(null);
+  const lastMissionKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -175,40 +178,90 @@ export default function MapScreen() {
     return () => { mounted = false; };
   }, [profile?.avatar_url]);
 
-  const onMessage = async (event: any) => {
-    try {
-      const msg = JSON.parse(event.nativeEvent.data);
+  useEffect(() => {
+    const latParam = Array.isArray(params.missionLat) ? params.missionLat[0] : params.missionLat;
+    const lngParam = Array.isArray(params.missionLng) ? params.missionLng[0] : params.missionLng;
+    if (!latParam || !lngParam) return;
+    const lat = Number.parseFloat(latParam as string);
+    const lng = Number.parseFloat(lngParam as string);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const labelParam = Array.isArray(params.missionName) ? params.missionName[0] : params.missionName;
+    const tokenParam = Array.isArray(params.missionToken) ? params.missionToken[0] : params.missionToken;
+    const key = `${lat.toFixed(5)}:${lng.toFixed(5)}:${labelParam ?? ''}:${tokenParam ?? ''}`;
+    if (key === lastMissionKeyRef.current) return;
+    lastMissionKeyRef.current = key;
+    pendingMissionRef.current = { lat, lng, label: labelParam ?? null };
+    if (userLocation) {
+      const label = labelParam ?? null;
+      pendingMissionRef.current = null;
+      requestRoute({ latitude: lat, longitude: lng }, { label });
+    }
+  }, [params.missionLat, params.missionLng, params.missionName, params.missionToken, userLocation, requestRoute]);
 
-      if (msg.type === "DESTINATION_SELECTED" && userLocation) {
-        setLoadingRoute(true);
-        const dest = { latitude: msg.lat, longitude: msg.lng };
+  useEffect(() => {
+    if (userLocation && pendingMissionRef.current) {
+      const pending = pendingMissionRef.current;
+      pendingMissionRef.current = null;
+      requestRoute({ latitude: pending.lat, longitude: pending.lng }, { label: pending.label ?? null });
+    }
+  }, [userLocation, requestRoute]);
+
+  const requestRoute = useCallback(
+    async (dest: Coord, meta?: { label?: string | null }) => {
+      if (!userLocation) {
+        Alert.alert('Ubicacion requerida', 'Necesitamos tu ubicacion actual para calcular la ruta.');
+        return;
+      }
+      setLoadingRoute(true);
+      try {
         const routeResult = await getRouteFromORS(userLocation, dest);
         const routeCoords = routeResult?.coords ?? [];
 
         if (routeResult?.source === 'OSRM') {
-          setUsedFallback(true);
-          setFallbackMessage('OpenRouteService no disponible — usando fallback OSRM');
+          setFallbackMessage('OpenRouteService no disponible - usando fallback OSRM');
         } else {
-          setUsedFallback(false);
           setFallbackMessage(null);
         }
 
         if (!routeCoords || routeCoords.length === 0) {
-          // avisar al mapa (alert dentro del WebView)
-          const errJs = `(function(){ alert('No se encontró ruta.'); })();`;
+          const errJs = `(function(){ alert('No se encontro ruta.'); })();`;
           webViewRef.current?.injectJavaScript(errJs);
-          setLoadingRoute(false);
           return;
         }
 
-        // Guardar la ruta en memoria y mostrar hoja inferior (no inyectamos aún)
         const distance = computeDistanceMeters(routeCoords);
-        setCurrentRoute({ coords: routeCoords, origin: userLocation, dest, distance });
-        // mostrar sheet
+        setCurrentRoute({
+          coords: routeCoords,
+          origin: userLocation,
+          dest,
+          distance,
+          label: meta?.label ?? null,
+        });
+
+        const labelPayload = JSON.stringify(meta?.label ?? '');
+        const setDestJs = `(function(){ if(window.setDestination){ window.setDestination(${dest.latitude}, ${dest.longitude}, ${labelPayload}); } })();`;
+        webViewRef.current?.injectJavaScript(setDestJs);
+
         setSheetVisible(true);
         sheetAnim.setValue(sheetHeight);
         Animated.timing(sheetAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
+      } catch (err) {
+        console.warn('requestRoute error:', err);
+        Alert.alert('Ruta no disponible', 'No pudimos preparar la ruta seleccionada.');
+      } finally {
         setLoadingRoute(false);
+      }
+    },
+    [userLocation, sheetAnim, sheetHeight]
+  );
+
+  const onMessage = async (event: any) => {
+    try {
+      const msg = JSON.parse(event.nativeEvent.data);
+
+      if (msg.type === "DESTINATION_SELECTED") {
+        const dest = { latitude: msg.lat, longitude: msg.lng };
+        await requestRoute(dest);
       }
     } catch (e) {
       console.warn("Error procesando mensaje del mapa:", e);
@@ -240,6 +293,11 @@ export default function MapScreen() {
         allowUniversalAccessFromFileURLs
         mixedContentMode="always"
       />
+      {fallbackMessage && (
+        <View style={styles.fallbackBanner} pointerEvents="none">
+          <Text style={styles.fallbackText}>{fallbackMessage}</Text>
+        </View>
+      )}
       {loadingRoute && (
         <View style={styles.loadingOverlay} pointerEvents="none">
           <ActivityIndicator size="large" color="#1e90ff" />
@@ -247,7 +305,9 @@ export default function MapScreen() {
       )}
       {sheetVisible && currentRoute && (
         <Animated.View style={[styles.sheet, { height: sheetHeight, transform: [{ translateY: sheetAnim }] }]}>
-          <Text style={styles.sheetTitle}>Ruta preparada</Text>
+          <Text style={styles.sheetTitle}>
+            {currentRoute.label ? `Ruta hacia ${currentRoute.label}` : 'Ruta preparada'}
+          </Text>
           <Text style={styles.sheetSubtitle}>Distancia: {(currentRoute.distance/1000).toFixed(2)} km</Text>
 
           <View style={styles.modesRow}>
@@ -466,6 +526,25 @@ const generateMapHtml = (lat: number, lng: number, avatarUrl: string | null) => 
           lng: dest.lng
         }));
       });
+
+      window.setDestination = function(lat, lng, label) {
+        var dest = L.latLng(lat, lng);
+        if (!destMarker) {
+          destMarker = L.marker(dest).addTo(map);
+        } else {
+          destMarker.setLatLng(dest);
+        }
+        if (label && destMarker.bindPopup) {
+          destMarker.bindPopup(label).openPopup();
+        } else if (destMarker.unbindPopup) {
+          destMarker.unbindPopup();
+        }
+        try {
+          map.panTo(dest);
+        } catch (e) {
+          // noop
+        }
+      };
 
       window.drawRoute = function(coords) {
         if (!coords || coords.length === 0) return;

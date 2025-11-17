@@ -95,6 +95,9 @@ export type Mission = {
   active: boolean;
   start_at?: string | null;
   end_at?: string | null;
+  location_lat?: number | null;
+  location_lng?: number | null;
+  location_label?: string | null;
 };
 
 export type UserMission = {
@@ -418,18 +421,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return (data as UserMission[]) ?? [];
   }, [user]);
 
-  const takeMission = useCallback(async (missionId: string) => {
-    if (!user) throw new Error('No user');
-    const { error } = await supabase
-      .from('user_misiones')
-      .insert({
-        user_id: user.id,
-        mission_id: missionId,
-        status: 'pendiente',
-        points_awarded: 0,
+  const takeMission = useCallback(
+    async (missionId: string) => {
+      if (!user) throw new Error('No user');
+      const { error } = await supabase.rpc('accept_mission', {
+        p_mission_id: missionId,
       });
-    if (error) throw error;
-  }, [user]);
+      if (error) throw error;
+    },
+    [user]
+  );
 
   const updateMissionStatus = useCallback(async (missionId: string, status: UserMission['status']) => {
     if (!user) throw new Error('No user');
@@ -443,42 +444,31 @@ export function AuthProvider({ children }: PropsWithChildren) {
     if (error) throw error;
   }, [user]);
 
-  const completeMission = useCallback(async (missionId: string) => {
-    if (!user) throw new Error('No user');
+  const completeMission = useCallback(
+    async (missionId: string) => {
+      if (!user) throw new Error('No user');
 
-    // 1) Tomar puntos de catálogo
-    const { data: missionRow, error: mErr } = await supabase
-      .from('missions')
-      .select('points')
-      .eq('id', missionId)
-      .maybeSingle();
-    if (mErr) throw mErr;
-    const pts = (missionRow?.points as number) ?? 0;
+      const { data, error } = await supabase.rpc('complete_mission', {
+        p_mission_id: missionId,
+      });
+      if (error) throw error;
 
-    // 2) Marcar completada y registrar puntos en user_misiones
-    const { error: updErr } = await supabase
-      .from('user_misiones')
-      .update({
-        status: 'completada',
-        completed_at: new Date().toISOString(),
-        points_awarded: pts,
-      })
-      .eq('user_id', user.id)
-      .eq('mission_id', missionId);
-    if (updErr) throw updErr;
+      const payload = Array.isArray(data) ? data[0] : null;
+      const totalPoints =
+        payload && typeof payload.total_points === 'number' ? payload.total_points : null;
+      const awarded =
+        payload && typeof payload.points_awarded === 'number' ? payload.points_awarded : 0;
 
-    // 3) Opcional: sumar puntos al perfil (si tu economía sube puntos globales)
-    const { error: profErr } = await supabase
-      .from('profiles')
-      .update({ points: (profile?.points ?? 0) + pts })
-      .eq('id', user.id);
-    if (profErr) {
-      console.log('[Auth] completeMission profile points warn:', profErr);
-    } else {
-      // refresca en memoria
-      setProfile((p) => (p ? { ...p, points: (p.points ?? 0) + pts } : p));
-    }
-  }, [user, profile?.points]);
+      setProfile((prev) => {
+        if (!prev) return prev;
+        if (totalPoints !== null) {
+          return { ...prev, points: totalPoints };
+        }
+        return { ...prev, points: (prev.points ?? 0) + awarded };
+      });
+    },
+    [user]
+  );
 
   /* ---------- updateProfile: actualizar campos básicos del perfil ---------- */
   const updateProfile = useCallback(
