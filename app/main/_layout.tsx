@@ -1,10 +1,10 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
-import { Platform } from 'react-native';
 import { HapticTab } from '@/components/haptic-tab';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { Tabs } from 'expo-router';
+import React from 'react';
+import { Platform } from 'react-native';
 
 export default function TabLayout() {
   const theme = useColorScheme();
@@ -57,6 +57,19 @@ export default function TabLayout() {
               size={focused ? 28 : 24} 
               name={focused ? "trending-up" : "trending-up"} 
               color={color} 
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="map"
+        options={{
+          title: 'Mapa',
+          tabBarIcon: ({ color, focused }) => (
+            <MaterialIcons
+              size={focused ? 28 : 24}
+              name={focused ? 'map' : 'map'}
+              color={color}
             />
           ),
         }}
