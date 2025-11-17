@@ -75,6 +75,19 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="news"
+        options={{
+          title: 'Noticias',
+          tabBarIcon: ({ color, focused }) => (
+            <MaterialIcons
+              size={focused ? 28 : 24}
+              name={focused ? 'article' : 'article'}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="perfil"
         options={{
           title: 'Perfil',

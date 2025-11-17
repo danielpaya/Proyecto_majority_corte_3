@@ -1,10 +1,10 @@
 import React from 'react';
 import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  type PressableProps,
+    ActivityIndicator,
+    Pressable,
+    StyleSheet,
+    Text,
+    type PressableProps,
 } from 'react-native';
 
 import { Colors } from '@/constants/theme';
@@ -53,17 +53,40 @@ export function ThemedButton({
     <Pressable
       {...rest}
       disabled={isDisabled}
-      style={({ pressed }) => [
-        styles.base,
-        {
+      style={({ pressed }) => {
+        // Build the base style object without transform unless pressed
+        const baseStyle: any = {
           backgroundColor,
           opacity: pressed ? 0.9 : 1,
-          transform: pressed ? [{ scale: 0.98 }] : undefined,
-        },
-        isDark && !isDisabled && highlight && styles.darkHighlight,
-        !isDark && !isDisabled && highlight && styles.lightHighlight,
-        style as any,
-      ]}
+        };
+        if (pressed) {
+          baseStyle.transform = [{ scale: 0.98 }];
+        }
+
+        // Build the style array and filter out falsy entries
+        const built: any[] = [
+          styles.base,
+          baseStyle,
+          isDark && !isDisabled && highlight && styles.darkHighlight,
+          !isDark && !isDisabled && highlight && styles.lightHighlight,
+        ].filter(Boolean);
+
+        // Normalize incoming `style` prop into an array and sanitize null/undefined transforms
+        const incoming = Array.isArray(style) ? style : style ? [style] : [];
+        const sanitized = incoming.map((s: any) => {
+          if (s && typeof s === 'object') {
+            // clone to avoid mutating user objects
+            const copy = { ...s };
+            if (copy.transform == null) {
+              delete copy.transform;
+            }
+            return copy;
+          }
+          return s;
+        }).filter(Boolean);
+
+        return [...built, ...sanitized];
+      }}
     >
       {loading ? (
         <ActivityIndicator color={textColor} />

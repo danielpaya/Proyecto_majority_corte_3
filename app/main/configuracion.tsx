@@ -1,24 +1,26 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-  TouchableOpacity,
-  Switch,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { useAuth } from '../../contexts/AuthContext';
+import { useCustomAlert } from '@/components/CustomAlert';
+import { ThemedButton } from '@/components/themed-button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function ConfiguracionScreen() {
-  const { profile, updateDarkMode, refreshProfile } = useAuth();
+  const { profile, updateDarkMode, refreshProfile, logout } = useAuth();
+  const alert = useCustomAlert();
   const router = useRouter();
   const theme = useColorScheme();
   const isDark = theme === 'dark';
@@ -44,10 +46,10 @@ export default function ConfiguracionScreen() {
       // para asegurar que el ThemeContext se actualice inmediatamente
       await refreshProfile();
       // El ThemeContext se actualizará automáticamente cuando cambie el perfil
-      Alert.alert('Éxito', 'Modo oscuro actualizado correctamente.');
+      await alert.show({ title: 'Éxito', message: 'Modo oscuro actualizado correctamente.', buttons: [{ text: 'OK' }] });
     } catch (error: any) {
       console.error('[Configuración] Error al actualizar modo oscuro:', error);
-      Alert.alert('Error', error.message ?? 'No se pudo actualizar la configuración');
+      await alert.show({ title: 'Error', message: error.message ?? 'No se pudo actualizar la configuración', buttons: [{ text: 'OK' }] });
       // Revertir el cambio si falla
       setDarkMode(!value);
     } finally {
@@ -171,6 +173,29 @@ export default function ConfiguracionScreen() {
               <ThemedText style={styles.infoValue}>{profile.points?.toLocaleString() ?? 0}</ThemedText>
             </View>
           </ThemedView>
+        </ThemedView>
+        {/* Botón de cerrar sesión */}
+        <ThemedView style={{ marginBottom: 24 }}>
+          <ThemedButton
+            title="Cerrar sesión"
+            onPress={async () => {
+              try {
+                const idx = await alert.show({
+                  title: 'Cerrar sesión',
+                  message: '¿Deseas cerrar sesión?',
+                  buttons: [ { text: 'Cancelar', style: 'cancel' }, { text: 'Cerrar sesión', style: 'destructive' } ]
+                });
+                if (idx === 1) {
+                  await logout();
+                  router.replace('/(auth)/login');
+                }
+              } catch (e) {
+                console.warn('Logout error', e);
+                await alert.show({ title: 'Error', message: 'No se pudo cerrar la sesión', buttons: [{ text: 'OK' }] });
+              }
+            }}
+            style={{ marginHorizontal: 16 }}
+          />
         </ThemedView>
       </ScrollView>
     </SafeAreaView>
