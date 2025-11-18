@@ -33,6 +33,7 @@ type MissionRow = {
   location_lat?: number | null;
   location_lng?: number | null;
   location_label?: string | null;
+  is_system?: boolean | null;
 };
 
 type UserMissionRow = {
@@ -112,13 +113,43 @@ export default function MisionesScreen() {
 
     setRefreshing(true);
     try {
-      // Mostrar siempre todas las misiones activas desde el RPC (evita restricciones RLS)
-      const { data: unlocked, error: missionsErr } = await supabase
-        .rpc('missions_public')
-        .returns<MissionRow[]>();
+      let unlocked: MissionRow[] | null = null;
+      try {
+        const { data, error: rpcErr } = await supabase
+          .rpc('missions_public')
+          .returns<MissionRow[]>();
+        if (rpcErr) {
+          throw rpcErr;
+        }
+        unlocked = data ?? [];
+      } catch (rpcError) {
+        console.log('[Misiones] missions_public rpc fallback', rpcError);
+        const { data, error: baseErr } = await supabase
+          .from('missions')
+          .select('id, title, category, points, difficulty, location_lat, location_lng, location_label, is_system')
+          .eq('active', true)
+          .order('category', { ascending: true })
+          .order('title', { ascending: true })
+          .returns<MissionRow[]>();
+        if (baseErr) throw baseErr;
+        unlocked = data ?? [];
+      }
+      const allMissions = unlocked ?? [];
 
-      if (missionsErr) throw missionsErr;
-      setSuggested(unlocked ?? []);
+      const { data: completedRows, error: completedErr } = await supabase
+        .from('user_misiones')
+        .select('mission_id, status')
+        .eq('user_id', profileId)
+        .eq('status', 'completada');
+      if (completedErr) throw completedErr;
+      const completedSet = new Set((completedRows ?? []).map((row) => row.mission_id));
+
+      const filteredMissions = allMissions.filter((mission) => {
+        if (mission.is_system) return true;
+        return !completedSet.has(mission.id);
+      });
+
+      setSuggested(filteredMissions);
 
       const yoursQ = supabase
         .from('user_misiones')
@@ -252,6 +283,7 @@ export default function MisionesScreen() {
       difficulty: difficultyValue,
       points: pointsRaw,
       created_by: profile.id,
+      is_system: true,
       location_lat: missionLocation.latitude,
       location_lng: missionLocation.longitude,
       location_label: missionForm.locationLabel.trim() || null,
@@ -460,7 +492,7 @@ export default function MisionesScreen() {
               <ThemedText style={styles.empty}>Sin sugerencias por ahora.</ThemedText>
             ) : (
               <View style={{ gap: 8 }}>
-                {suggested.slice(0, 8).map((m) => {
+                {suggested.map((m) => {
                   const alreadyTaken = takenMissionIds.has(m.id);
                   const hasCoords = m.location_lat != null && m.location_lng != null;
                   return (
