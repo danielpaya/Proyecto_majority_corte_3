@@ -24,6 +24,8 @@ import { AvatarPreview } from '../../components/AvatarPreview';
 import { catalog_tmplx01 } from '../data/avatarCatalog';
 import type { AvatarLayer } from '../data/avatarCatalog';
 
+import { FabChat } from '@/components/FabChat';
+
 type MissionRow = {
   id: string;
   title: string;
@@ -319,10 +321,19 @@ export default function MisionesScreen() {
   }
 
   return (
-    <SafeAreaView
-      style={[styles.safe, { backgroundColor: isDark ? Colors.dark.background : Colors.light.background }]}
-    >
+  <SafeAreaView
+    style={[
+      styles.safe,
+      { backgroundColor: isDark ? Colors.dark.background : Colors.light.background },
+    ]}
+  >
+    <View style={{ flex: 1 }}>
       <FlatList
+        data={[]}
+        ListHeaderComponent={
+          <ThemedView style={styles.container}>
+            {
+              <FlatList
         data={[]}
         ListHeaderComponent={
           <ThemedView style={styles.container}>
@@ -536,8 +547,23 @@ export default function MisionesScreen() {
         ListEmptyComponent={null}
         contentContainerStyle={{ paddingBottom: 24 }}
       />
-    </SafeAreaView>
-  );
+
+            }
+          </ThemedView>
+        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadData} />}
+        renderItem={null as any}
+        keyExtractor={(_, i) => String(i)}
+        ListEmptyComponent={null}
+        contentContainerStyle={{ paddingBottom: 24 }}
+      />
+
+      {/* Botón flotante de chat que despliega el menú de Aria */}
+      <FabChat />
+    </View>
+  </SafeAreaView>
+);
+
 }
 
 const styles = StyleSheet.create({
