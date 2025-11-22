@@ -11,7 +11,9 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   ScrollView,
+  Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '../../contexts/AuthContext';
@@ -51,6 +53,7 @@ type MissionRow = {
   location_label?: string | null;
   is_system?: boolean | null;
   created_by?: string | null;
+  image_url?: string | null;
   prerequisite_mission?: {
     id: string;
     title: string;
@@ -98,6 +101,8 @@ export default function MisionesScreen() {
   const [selectedMission, setSelectedMission] = useState<MissionRow | null>(null);
   const [showMissionModal, setShowMissionModal] = useState(false);
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'incomplete' | 'with_prerequisites'>('all');
+  const [missionImage, setMissionImage] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const profileId = profile?.id ?? null;
   const resetMissionForm = useCallback(() => {
@@ -110,6 +115,137 @@ export default function MisionesScreen() {
       locationLabel: '',
     });
     setMissionLocation(null);
+    setMissionImage(null);
+  }, []);
+
+
+  // Función para subir imagen a Supabase Storage y retornar la URL pública
+  const uploadMissionImage = useCallback(async (imageUri: string, missionId: string): Promise<string | null> => {
+    if (!profileId) {
+      throw new Error('No hay usuario autenticado');
+    }
+
+    if (!isAdmin) {
+      throw new Error('Solo los administradores pueden subir imágenes');
+    }
+
+    try {
+      setUploadingImage(true);
+
+      // Generar nombre único para el archivo
+      const fileExt = imageUri.split('.').pop()?.toLowerCase() || 'jpg';
+      const fileName = `mission-${missionId}-${Date.now()}.${fileExt}`;
+      const filePath = `missions/${fileName}`;
+
+      // En React Native, leer el archivo usando fetch y convertir a ArrayBuffer
+      // arrayBuffer() está disponible en React Native (no blob())
+      const response = await fetch(imageUri);
+      if (!response.ok) {
+        throw new Error('No se pudo leer la imagen');
+      }
+
+      // Convertir la respuesta a ArrayBuffer (compatible con React Native)
+      const arrayBuffer = await response.arrayBuffer();
+
+      // Subir a Supabase Storage usando el ArrayBuffer
+      // Supabase Storage acepta ArrayBuffer en React Native
+      const { data, error } = await supabase.storage
+        .from('images')
+        .upload(filePath, arrayBuffer, {
+          contentType: `image/${fileExt}`,
+          upsert: false,
+        });
+
+      if (error) {
+        console.log('[Misiones] upload error', error);
+        // Mensajes de error más descriptivos
+        if (error.message?.includes('new row violates row-level security')) {
+          throw new Error('No tienes permisos para subir imágenes. Verifica que seas administrador y que las políticas de storage estén configuradas.');
+        }
+        if (error.message?.includes('Bucket not found')) {
+          throw new Error('El bucket "images" no existe. Ejecuta la migración 018_setup_images_bucket.sql');
+        }
+        throw new Error(`Error al subir imagen: ${error.message || 'Error desconocido'}`);
+      }
+
+      if (!data) {
+        throw new Error('No se recibió confirmación de la subida');
+      }
+
+      // Obtener la URL pública del archivo subido
+      const { data: urlData } = supabase.storage.from('images').getPublicUrl(filePath);
+      
+      if (urlData?.publicUrl) {
+        console.log('[Misiones] Image uploaded successfully, public URL:', urlData.publicUrl);
+        return urlData.publicUrl;
+      }
+
+      // Si no hay URL pública, intentar generar URL firmada como fallback
+      const { data: signedData, error: signedError } = await supabase.storage
+        .from('images')
+        .createSignedUrl(filePath, 31536000); // 1 año
+
+      if (signedError || !signedData) {
+        console.log('[Misiones] error getting signed URL', signedError);
+        throw new Error('No se pudo obtener la URL de la imagen después de subirla');
+      }
+
+      console.log('[Misiones] Image uploaded successfully, signed URL:', signedData.signedUrl);
+      return signedData.signedUrl;
+    } catch (error: any) {
+      console.log('[Misiones] upload image error', error);
+      throw error;
+    } finally {
+      setUploadingImage(false);
+    }
+  }, [profileId, isAdmin]);
+
+  // Función para seleccionar imagen (cámara o galería)
+  const pickImage = useCallback(async (source: 'camera' | 'gallery') => {
+    try {
+      if (source === 'camera') {
+        // Solicitar permisos de cámara
+        const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
+        if (cameraStatus !== 'granted') {
+          Alert.alert('Permisos requeridos', 'Necesitamos acceso a tu cámara para tomar una foto.');
+          return;
+        }
+
+        // Abrir cámara
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [16, 9],
+          quality: 0.8,
+        });
+
+        if (!result.canceled && result.assets[0]) {
+          setMissionImage(result.assets[0].uri);
+        }
+      } else {
+        // Solicitar permisos de galería
+        const { status: galleryStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (galleryStatus !== 'granted') {
+          Alert.alert('Permisos requeridos', 'Necesitamos acceso a tu galería para seleccionar una imagen.');
+          return;
+        }
+
+        // Abrir selector de imagen
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [16, 9],
+          quality: 0.8,
+        });
+
+        if (!result.canceled && result.assets[0]) {
+          setMissionImage(result.assets[0].uri);
+        }
+      }
+    } catch (error) {
+      console.log('[Misiones] error picking image', error);
+      Alert.alert('Error', 'No se pudo seleccionar la imagen.');
+    }
   }, []);
 
   const avatarSelected = useMemo(() => {
@@ -163,7 +299,7 @@ export default function MisionesScreen() {
         console.log('[Misiones] missions_public rpc fallback', rpcError);
         const { data, error: baseErr } = await supabase
           .from('missions')
-          .select('id, slug, title, description, category, points, difficulty, location_lat, location_lng, location_label, is_system, created_by')
+          .select('id, slug, title, description, category, points, difficulty, location_lat, location_lng, location_label, is_system, created_by, image_url')
           .eq('active', true)
           .order('category', { ascending: true })
           .order('title', { ascending: true })
@@ -204,6 +340,7 @@ export default function MisionesScreen() {
       }
       
       // Agregar información de prerequisitos a las misiones
+      // Las URLs de imágenes ya están guardadas como URLs completas en la base de datos
       const allMissions = (unlocked ?? []).map(mission => ({
         ...mission,
         prerequisite_mission: prerequisitesMap[mission.id] || null,
@@ -537,25 +674,55 @@ export default function MisionesScreen() {
     const slugBase = slugify(title);
     const slug = slugBase ? `${slugBase}-${Date.now()}` : `mision-${Date.now()}`;
 
-    const payload = {
-      slug,
-      title,
-      description: missionForm.description.trim() || null,
-      category: missionForm.category.trim() || null,
-      difficulty: difficultyValue,
-      points: pointsRaw,
-      created_by: profile.id,
-      is_system: true,
-      location_lat: missionLocation.latitude,
-      location_lng: missionLocation.longitude,
-      location_label: missionForm.locationLabel.trim() || null,
-      active: true,
-    };
+    // Generar un ID temporal único para la misión (para nombrar la imagen)
+    const tempMissionId = `temp-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
     try {
       setCreatingMission(true);
+
+      // Subir imagen si existe (antes de crear la misión)
+      let imageUrl: string | null = null;
+      if (missionImage) {
+        try {
+          imageUrl = await uploadMissionImage(missionImage, tempMissionId);
+          if (!imageUrl) {
+            throw new Error('No se pudo obtener la URL de la imagen');
+          }
+          console.log('[Misiones] Image URL obtained:', imageUrl);
+        } catch (imgErr: any) {
+          console.log('[Misiones] error uploading image', imgErr);
+          const errorMessage = imgErr?.message || 'No se pudo subir la imagen';
+          
+          // Mostrar error detallado
+          Alert.alert(
+            'Error al subir imagen',
+            `${errorMessage}\n\nVerifica:\n- Que seas administrador\n- Que la migración 018_setup_images_bucket.sql esté ejecutada\n- Que el bucket "images" exista en Supabase Storage\n\nLa misión se creará sin imagen.`,
+            [{ text: 'OK' }]
+          );
+          // Continuar sin imagen
+          imageUrl = null;
+        }
+      }
+
+      const payload = {
+        slug,
+        title,
+        description: missionForm.description.trim() || null,
+        category: missionForm.category.trim() || null,
+        difficulty: difficultyValue,
+        points: pointsRaw,
+        created_by: profile.id,
+        is_system: true,
+        location_lat: missionLocation.latitude,
+        location_lng: missionLocation.longitude,
+        location_label: missionForm.locationLabel.trim() || null,
+        image_url: imageUrl, // Guardar la URL pública directamente
+        active: true,
+      };
+
       const { error } = await supabase.from('missions').insert(payload);
       if (error) throw error;
+
       Alert.alert('Mision creada', 'La mision se guardo con la ubicacion seleccionada.');
       resetMissionForm();
       await loadData();
@@ -565,7 +732,7 @@ export default function MisionesScreen() {
     } finally {
       setCreatingMission(false);
     }
-  }, [isAdmin, profile?.id, missionForm, missionLocation, resetMissionForm, loadData]);
+  }, [isAdmin, profile?.id, missionForm, missionLocation, missionImage, resetMissionForm, loadData, uploadMissionImage]);
 
   if (loading) {
     return (
@@ -688,6 +855,64 @@ export default function MisionesScreen() {
                   onChangeText={(text) => setMissionForm((prev) => ({ ...prev, locationLabel: text }))}
                 />
 
+                {/* Selector de imagen */}
+                <View style={{ marginTop: 12 }}>
+                  <ThemedText style={[styles.label, { marginBottom: 8 }]}>Imagen de la misión (opcional)</ThemedText>
+                  {missionImage ? (
+                    <View style={styles.imagePreviewContainer}>
+                      <Image source={{ uri: missionImage }} style={styles.imagePreview} />
+                      <TouchableOpacity
+                        style={styles.removeImageButton}
+                        onPress={() => setMissionImage(null)}>
+                        <MaterialIcons name="close" size={20} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.imagePickerButtonsContainer}>
+                      <TouchableOpacity
+                        style={[styles.imagePickerButton, { borderColor: isDark ? '#2a2a3e' : '#e0e0e0' }]}
+                        onPress={() => pickImage('camera')}
+                        disabled={uploadingImage}>
+                        {uploadingImage ? (
+                          <ActivityIndicator color={isDark ? '#4a9eff' : '#0a7aff'} />
+                        ) : (
+                          <>
+                            <MaterialIcons
+                              name="camera-alt"
+                              size={24}
+                              color={isDark ? '#4a9eff' : '#0a7aff'}
+                              style={{ marginRight: 8 }}
+                            />
+                            <ThemedText style={{ color: isDark ? '#4a9eff' : '#0a7aff' }}>
+                              Tomar foto
+                            </ThemedText>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.imagePickerButton, { borderColor: isDark ? '#2a2a3e' : '#e0e0e0' }]}
+                        onPress={() => pickImage('gallery')}
+                        disabled={uploadingImage}>
+                        {uploadingImage ? (
+                          <ActivityIndicator color={isDark ? '#4a9eff' : '#0a7aff'} />
+                        ) : (
+                          <>
+                            <MaterialIcons
+                              name="image"
+                              size={24}
+                              color={isDark ? '#4a9eff' : '#0a7aff'}
+                              style={{ marginRight: 8 }}
+                            />
+                            <ThemedText style={{ color: isDark ? '#4a9eff' : '#0a7aff' }}>
+                              Galería
+                            </ThemedText>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+
                 <View style={{ marginTop: 12 }}>
                   <MissionLocationPicker value={missionLocation} onChange={setMissionLocation} />
                   {missionLocation ? (
@@ -775,6 +1000,7 @@ export default function MisionesScreen() {
                       <TouchableOpacity
                         activeOpacity={0.7}
                         onPress={() => {
+                          console.log('[Misiones] Selected mission:', m.title, 'Image URL:', m.image_url);
                           setSelectedMission(m);
                           setShowMissionModal(true);
                         }}>
@@ -886,6 +1112,25 @@ export default function MisionesScreen() {
                     </View>
 
                     <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                      {/* Imagen de la misión */}
+                      {selectedMission.image_url ? (
+                        <View style={styles.modalImageContainer}>
+                          <Image
+                            source={{ uri: selectedMission.image_url }}
+                            style={styles.modalImage}
+                            resizeMode="cover"
+                            onError={(error) => {
+                              console.log('[Misiones] Error loading image:', selectedMission.image_url, error);
+                            }}
+                            onLoad={() => {
+                              console.log('[Misiones] Image loaded successfully:', selectedMission.image_url);
+                            }}
+                          />
+                        </View>
+                      ) : (
+                        <View style={[styles.modalImageContainer, { height: 0, marginBottom: 0 }]} />
+                      )}
+
                       <View style={styles.modalInfoRow}>
                         <ThemedView style={styles.modalBadge} lightColor="#eef4ff" darkColor="#2a2a3e">
                           <ThemedText style={styles.modalBadgeText} lightColor="#0a7aff" darkColor="#4a9eff">
@@ -1165,6 +1410,59 @@ const styles = StyleSheet.create({
   modalPrerequisiteText: {
     fontSize: 15,
     fontWeight: '700',
+  },
+  imagePickerButtonsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  imagePickerButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
+  },
+  imagePreviewContainer: {
+    position: 'relative',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginTop: 8,
+  },
+  imagePreview: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 20,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalImageContainer: {
+    width: '100%',
+    marginBottom: 16,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  modalImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
   },
 });
 
