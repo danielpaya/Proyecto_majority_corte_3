@@ -36,6 +36,7 @@ export type Profile = {
   avatar_template_id?: string | null;
   avatar_config?: AvatarConfig | null;
   font_size?: FontSize;
+  wallet_balance?: number;
 };
 
 export type RegisterPayload = {
@@ -208,7 +209,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [initializing, setInitializing] = useState(true);
 
   /* ---------- leer perfil desde public.profiles ---------- */
-  const fetchProfile = useCallback(async (uid: string) => {
+  const fetchProfile = useCallback(async (uid: string): Promise<Profile | null> => {
     const { data, error } = await supabase
       .from('profiles')
       .select('*')

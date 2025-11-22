@@ -373,6 +373,41 @@ export default function PerfilScreen() {
             </View>
           </ThemedView>
         </ThemedView>
+
+        {/* Botón de cartera */}
+        <ThemedView style={styles.section}>
+          <TouchableOpacity
+            style={[
+              styles.walletButton,
+              {
+                backgroundColor: isDark ? '#2a2a3e' : '#f0f0f0',
+                borderColor: isDark ? '#3a3a4e' : '#e0e0e0',
+              },
+            ]}
+            onPress={() => router.push('/main/cartera')}
+            activeOpacity={0.7}>
+            <View style={styles.walletButtonContent}>
+              <MaterialIcons
+                name="account-balance-wallet"
+                size={24}
+                color={isDark ? Colors.dark.tint : Colors.light.tint}
+              />
+              <View style={styles.walletButtonText}>
+                <ThemedText type="defaultSemiBold" style={styles.walletButtonTitle}>
+                  Mi Cartera
+                </ThemedText>
+                <ThemedText style={styles.walletButtonSubtitle}>
+                  Agregar dinero y gestionar planes
+                </ThemedText>
+              </View>
+              <MaterialIcons
+                name="chevron-right"
+                size={24}
+                color={isDark ? Colors.dark.icon : Colors.light.icon}
+              />
+            </View>
+          </TouchableOpacity>
+        </ThemedView>
       </ScrollView>
       <FabChat />
     </SafeAreaView>
@@ -542,6 +577,28 @@ const styles = StyleSheet.create({
   },
   iosDatePickerButtonText: {
     fontWeight: '600',
+  },
+  walletButton: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 16,
+    marginTop: 8,
+  },
+  walletButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  walletButtonText: {
+    flex: 1,
+  },
+  walletButtonTitle: {
+    fontSize: 16,
+    marginBottom: 2,
+  },
+  walletButtonSubtitle: {
+    fontSize: 13,
+    opacity: 0.7,
   },
 });
 
