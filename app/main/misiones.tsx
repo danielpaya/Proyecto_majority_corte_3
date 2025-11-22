@@ -7,6 +7,10 @@ import {
   ActivityIndicator,
   Alert,
   TextInput,
+  Modal,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -32,11 +36,13 @@ import {
   type Answer,
   type RawQuestion,
 } from '../data/adulthoodApi';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
 type MissionRow = {
   id: string;
   slug?: string | null;
   title: string;
+  description?: string | null;
   category?: string | null;
   points: number;
   difficulty?: number | null;
@@ -85,6 +91,8 @@ export default function MisionesScreen() {
     locationLabel: '',
   });
   const [missionLocation, setMissionLocation] = useState<MissionCoordinate | null>(null);
+  const [selectedMission, setSelectedMission] = useState<MissionRow | null>(null);
+  const [showMissionModal, setShowMissionModal] = useState(false);
 
   const profileId = profile?.id ?? null;
   const resetMissionForm = useCallback(() => {
@@ -150,7 +158,7 @@ export default function MisionesScreen() {
         console.log('[Misiones] missions_public rpc fallback', rpcError);
         const { data, error: baseErr } = await supabase
           .from('missions')
-          .select('id, slug, title, category, points, difficulty, location_lat, location_lng, location_label, is_system, created_by')
+          .select('id, slug, title, description, category, points, difficulty, location_lat, location_lng, location_label, is_system, created_by')
           .eq('active', true)
           .order('category', { ascending: true })
           .order('title', { ascending: true })
@@ -667,15 +675,21 @@ export default function MisionesScreen() {
                       key={m.id}
                       style={[styles.card, { borderColor: isDark ? '#2a2a3e' : '#e0e0e0' }]}
                       lightColor="#fafafa"
-                      darkColor="#1a1a2e"
-                    >
-                      <ThemedText type="defaultSemiBold" style={styles.cardTitle}>
-                        {m.title}
-                      </ThemedText>
-                      <ThemedText style={styles.cardSub}>
-                        {(m.category ?? 'General') + ` - ${m.points} pts`}{' '}
-                        {m.difficulty ? `(D${m.difficulty})` : ''}
-                      </ThemedText>
+                      darkColor="#1a1a2e">
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          setSelectedMission(m);
+                          setShowMissionModal(true);
+                        }}>
+                        <ThemedText type="defaultSemiBold" style={styles.cardTitle}>
+                          {m.title}
+                        </ThemedText>
+                        <ThemedText style={styles.cardSub}>
+                          {(m.category ?? 'General') + ` - ${m.points} pts`}{' '}
+                          {m.difficulty ? `(D${m.difficulty})` : ''}
+                        </ThemedText>
+                      </TouchableOpacity>
                       <View style={{ marginTop: 12, gap: 8 }}>
                         <ThemedButton
                           title="Ver ubicacion"
@@ -716,6 +730,123 @@ export default function MisionesScreen() {
 
       {/* Botón flotante de chat que despliega el menú de Aria */}
       <FabChat />
+
+      {/* Modal de detalles de misión */}
+      <Modal
+        visible={showMissionModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setShowMissionModal(false);
+          setSelectedMission(null);
+        }}>
+        <TouchableWithoutFeedback onPress={() => {
+          setShowMissionModal(false);
+          setSelectedMission(null);
+        }}>
+          <View style={styles.modalBackdrop}>
+            <TouchableWithoutFeedback>
+              <ThemedView
+                style={[styles.modalContent, { borderColor: isDark ? '#2a2a3e' : '#e0e0e0' }]}
+                lightColor="#ffffff"
+                darkColor="#121224">
+                {selectedMission && (
+                  <>
+                    <View style={styles.modalHeader}>
+                      <ThemedText type="title" style={styles.modalTitle}>
+                        {selectedMission.title}
+                      </ThemedText>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setShowMissionModal(false);
+                          setSelectedMission(null);
+                        }}
+                        style={styles.modalCloseButton}>
+                        <MaterialIcons
+                          name="close"
+                          size={24}
+                          color={isDark ? Colors.dark.text : Colors.light.text}
+                        />
+                      </TouchableOpacity>
+                    </View>
+
+                    <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                      <View style={styles.modalInfoRow}>
+                        <ThemedView style={styles.modalBadge} lightColor="#eef4ff" darkColor="#2a2a3e">
+                          <ThemedText style={styles.modalBadgeText} lightColor="#0a7aff" darkColor="#4a9eff">
+                            {selectedMission.category ?? 'General'}
+                          </ThemedText>
+                        </ThemedView>
+                        <ThemedView style={styles.modalBadge} lightColor="#eef4ff" darkColor="#2a2a3e">
+                          <ThemedText style={styles.modalBadgeText} lightColor="#0a7aff" darkColor="#4a9eff">
+                            {selectedMission.points} pts
+                          </ThemedText>
+                        </ThemedView>
+                        {selectedMission.difficulty && (
+                          <ThemedView style={styles.modalBadge} lightColor="#eef4ff" darkColor="#2a2a3e">
+                            <ThemedText style={styles.modalBadgeText} lightColor="#0a7aff" darkColor="#4a9eff">
+                              Dificultad {selectedMission.difficulty}
+                            </ThemedText>
+                          </ThemedView>
+                        )}
+                      </View>
+
+                      {selectedMission.description ? (
+                        <ThemedText style={styles.modalDescription}>
+                          {selectedMission.description}
+                        </ThemedText>
+                      ) : (
+                        <ThemedText style={[styles.modalDescription, { opacity: 0.6 }]}>
+                          Esta misión no tiene descripción disponible.
+                        </ThemedText>
+                      )}
+
+                      <View style={styles.modalButtons}>
+                        {(() => {
+                          const alreadyTaken = selectedMission ? takenMissionIds.has(selectedMission.id) : false;
+                          const hasCoords = selectedMission
+                            ? selectedMission.location_lat != null && selectedMission.location_lng != null
+                            : false;
+
+                          return (
+                            <>
+                              <ThemedButton
+                                title="Ver ubicacion"
+                                highlight={false}
+                                disabled={!hasCoords}
+                                onPress={() => {
+                                  if (selectedMission) {
+                                    setShowMissionModal(false);
+                                    handleViewMissionLocation(selectedMission);
+                                    setSelectedMission(null);
+                                  }
+                                }}
+                                style={{ marginBottom: 8 }}
+                              />
+                              <ThemedButton
+                                title={alreadyTaken ? 'Ya aceptada' : 'Aceptar mision'}
+                                disabled={alreadyTaken}
+                                loading={selectedMission ? acceptingId === selectedMission.id : false}
+                                onPress={() => {
+                                  if (selectedMission) {
+                                    setShowMissionModal(false);
+                                    handleAcceptMission(selectedMission.id);
+                                    setSelectedMission(null);
+                                  }
+                                }}
+                              />
+                            </>
+                          );
+                        })()}
+                      </View>
+                    </ScrollView>
+                  </>
+                )}
+              </ThemedView>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </View>
   </SafeAreaView>
 );
@@ -775,6 +906,64 @@ const styles = StyleSheet.create({
   multiline: {
     minHeight: 86,
     textAlignVertical: 'top',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: '80%',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    flex: 1,
+    fontSize: 22,
+    marginRight: 12,
+  },
+  modalCloseButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalScroll: {
+    maxHeight: 400,
+  },
+  modalInfoRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  modalBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  modalBadgeText: {
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  modalDescription: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+  modalButtons: {
+    gap: 8,
   },
 });
 
