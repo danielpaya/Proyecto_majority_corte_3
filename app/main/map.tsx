@@ -6,6 +6,7 @@ import { WebView } from "react-native-webview";
 import { useLocalSearchParams } from 'expo-router';
 import { useAuth } from "../../contexts/AuthContext";
 import { createSignedUrlForPath, supabase } from '../../utils/supabase';
+import { FabChat } from '@/components/FabChat';
 
 type Coord = { latitude: number; longitude: number };
 
@@ -349,6 +350,7 @@ export default function MapScreen() {
            </View>
         </Animated.View>
       )}
+      <FabChat />
     </View>
   );
 }

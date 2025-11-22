@@ -25,9 +25,17 @@ import { catalog_tmplx01 } from '../data/avatarCatalog';
 import type { AvatarLayer } from '../data/avatarCatalog';
 
 import { FabChat } from '@/components/FabChat';
+import {
+  fetchQuestions,
+  fetchUserAdulthoodAnswers,
+  normalizeAdulthoodSlug,
+  type Answer,
+  type RawQuestion,
+} from '../data/adulthoodApi';
 
 type MissionRow = {
   id: string;
+  slug?: string | null;
   title: string;
   category?: string | null;
   points: number;
@@ -36,6 +44,7 @@ type MissionRow = {
   location_lng?: number | null;
   location_label?: string | null;
   is_system?: boolean | null;
+  created_by?: string | null;
 };
 
 type UserMissionRow = {
@@ -115,6 +124,19 @@ export default function MisionesScreen() {
 
     setRefreshing(true);
     try {
+      let adulthoodAnswers: Record<string, Answer> = {};
+      let adulthoodQuestions: RawQuestion[] = [];
+      try {
+        adulthoodAnswers = await fetchUserAdulthoodAnswers(profileId);
+      } catch (answersErr) {
+        console.log('[Misiones] adulthood answers error', answersErr);
+      }
+      try {
+        adulthoodQuestions = await fetchQuestions();
+      } catch (questionsErr) {
+        console.log('[Misiones] adulthood questions error', questionsErr);
+      }
+
       let unlocked: MissionRow[] | null = null;
       try {
         const { data, error: rpcErr } = await supabase
@@ -128,7 +150,7 @@ export default function MisionesScreen() {
         console.log('[Misiones] missions_public rpc fallback', rpcError);
         const { data, error: baseErr } = await supabase
           .from('missions')
-          .select('id, title, category, points, difficulty, location_lat, location_lng, location_label, is_system')
+          .select('id, slug, title, category, points, difficulty, location_lat, location_lng, location_label, is_system, created_by')
           .eq('active', true)
           .order('category', { ascending: true })
           .order('title', { ascending: true })
@@ -146,9 +168,143 @@ export default function MisionesScreen() {
       if (completedErr) throw completedErr;
       const completedSet = new Set((completedRows ?? []).map((row) => row.mission_id));
 
+      // Crear mapas normalizados de preguntas y respuestas para matching eficiente
+      const normalizedQuestionSlugs = new Set(
+        adulthoodQuestions
+          .map((q) => normalizeAdulthoodSlug(q.slug))
+          .filter((value): value is string => Boolean(value))
+      );
+      const normalizedQuestionBlocks = new Set(
+        adulthoodQuestions
+          .map((q) => normalizeAdulthoodSlug(q.block))
+          .filter((value): value is string => Boolean(value))
+      );
+
+      // Normalizar todas las claves de respuestas para matching consistente
+      const normalizedAnswers: Record<string, Answer> = {};
+      for (const [key, answer] of Object.entries(adulthoodAnswers)) {
+        const normalized = normalizeAdulthoodSlug(key);
+        if (normalized) {
+          normalizedAnswers[normalized] = answer;
+        }
+      }
+
+      /**
+       * Resuelve la respuesta de adultez relacionada con una misión
+       * Busca coincidencias por slug, category o title de la misión
+       * Retorna la respuesta si encuentra una relación, null si no hay relación
+       */
+      const resolveAnswerForMission = (mission: MissionRow): Answer | null => {
+        // Normalizar los campos de la misión
+        const normalizedSlug = normalizeMissionKey(mission.slug);
+        const normalizedCategory = normalizeMissionKey(mission.category);
+        const normalizedTitle = normalizeMissionKey(mission.title);
+
+        const searchKeys = [normalizedSlug, normalizedCategory, normalizedTitle].filter(
+          (v): v is string => Boolean(v)
+        );
+
+        if (searchKeys.length === 0) {
+          return null;
+        }
+
+        // 1. Buscar coincidencias exactas: slug de pregunta = slug/category/title de misión
+        for (const key of searchKeys) {
+          if (normalizedQuestionSlugs.has(key)) {
+            const answer = normalizedAnswers[key];
+            if (answer) {
+              return answer;
+            }
+          }
+        }
+
+        // 2. Buscar coincidencias exactas en las respuestas normalizadas
+        // (por si el question_slug coincide directamente con slug/category/title de la misión)
+        for (const key of searchKeys) {
+          if (normalizedAnswers[key]) {
+            return normalizedAnswers[key];
+          }
+        }
+
+        // 3. Buscar por bloques de preguntas
+        for (const key of searchKeys) {
+          if (normalizedQuestionBlocks.has(key)) {
+            // Si el bloque coincide, buscar todas las respuestas de preguntas en ese bloque
+            for (const question of adulthoodQuestions) {
+              const normalizedQSlug = normalizeAdulthoodSlug(question.slug);
+              const normalizedQBlock = normalizeAdulthoodSlug(question.block);
+              
+              if (normalizedQBlock === key && normalizedQSlug && normalizedAnswers[normalizedQSlug]) {
+                return normalizedAnswers[normalizedQSlug];
+              }
+            }
+          }
+        }
+
+        // 4. Buscar coincidencias parciales (más flexible)
+        for (const key of searchKeys) {
+          // Buscar en slugs de preguntas
+          for (const qSlug of normalizedQuestionSlugs) {
+            if (key.length > 3 && qSlug.length > 3) {
+              if (key.includes(qSlug) || qSlug.includes(key)) {
+                const answer = normalizedAnswers[qSlug];
+                if (answer) {
+                  return answer;
+                }
+              }
+            }
+          }
+          
+          // Buscar en respuestas
+          for (const [answerKey, answer] of Object.entries(normalizedAnswers)) {
+            if (key.length > 3 && answerKey.length > 3) {
+              if (key.includes(answerKey) || answerKey.includes(key)) {
+                return answer;
+              }
+            }
+          }
+        }
+
+        return null;
+      };
+
+      /**
+       * Filtra misiones basándose en:
+       * 1. Misiones de admin: siempre mostrar
+       * 2. Misiones completadas: no mostrar en sugeridas
+       * 3. Respuestas de adultez:
+       *    - Solo mostrar misiones relacionadas con preguntas de adultez
+       *    - 'yes' o 'na': NO mostrar (ya está resuelto)
+       *    - 'no' o 'in_progress': SÍ mostrar (necesita trabajo)
+       *    - Sin respuesta relacionada: NO mostrar (solo misiones relacionadas con preguntas)
+       */
       const filteredMissions = allMissions.filter((mission) => {
-        if (mission.is_system) return true;
-        return !completedSet.has(mission.id);
+        if (!mission) return false;
+
+        const isAdminMission = Boolean(mission.created_by);
+        
+        // Las misiones de admin siempre se muestran
+        if (isAdminMission) {
+          return true;
+        }
+
+        // No mostrar misiones ya completadas
+        if (completedSet.has(mission.id)) {
+          return false;
+        }
+
+        // Buscar respuesta de adultez relacionada
+        const answer = resolveAnswerForMission(mission);
+        
+        // Solo mostrar misiones que tienen una pregunta de adultez relacionada
+        // Si no hay respuesta relacionada, NO mostrar la misión
+        if (!answer) {
+          return false;
+        }
+
+        // Si hay respuesta relacionada, mostrar solo si es 'no' o 'in_progress' (necesita trabajo)
+        // Ocultar si es 'yes' o 'na' (ya está resuelto)
+        return answer === 'no' || answer === 'in_progress';
       });
 
       setSuggested(filteredMissions);
@@ -629,4 +785,11 @@ function slugify(value: string) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)+/g, '');
+}
+
+function normalizeMissionKey(value?: string | null) {
+  if (!value) return null;
+  const base = slugify(value);
+  if (!base) return null;
+  return base.replace(/-\d+$/g, '');
 }

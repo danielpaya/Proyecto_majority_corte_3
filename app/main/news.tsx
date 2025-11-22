@@ -6,6 +6,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
+import { FabChat } from '@/components/FabChat';
 
 type PriorityLevel = 'alta' | 'media' | 'baja';
 type StatusFilter = 'all' | 'published' | 'draft' | 'expired';
@@ -558,6 +559,7 @@ export default function NewsScreen() {
           })()
         )}
       </ScrollView>
+      <FabChat />
     </ThemedView>
   );
 }

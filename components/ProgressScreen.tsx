@@ -11,6 +11,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AvatarPreview } from '@/components/AvatarPreview';
 import { catalog_tmplx01 } from '@/app/data/avatarCatalog';
 import type { AvatarLayer } from '@/app/data/avatarCatalog';
+import { FabChat } from '@/components/FabChat';
 
 /**
  * Calcula el XP necesario para el siguiente nivel
@@ -232,6 +233,7 @@ export function ProgressScreen() {
         </ThemedView>
 
       </ScrollView>
+      <FabChat />
     </SafeAreaView>
   );
 }

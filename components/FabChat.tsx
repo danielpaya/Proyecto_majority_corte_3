@@ -40,6 +40,7 @@ export const FabChat = () => {
             x={-120}
             y={-50}
             onPress={() => go("/main/misiones")}
+            isDark={isDark}
           />
 
           <CircleButton
@@ -48,6 +49,7 @@ export const FabChat = () => {
             x={-60}
             y={-140}
             onPress={() => go("/main/progreso")}
+            isDark={isDark}
           />
 
           <CircleButton
@@ -56,6 +58,7 @@ export const FabChat = () => {
             x={60}
             y={-140}
             onPress={() => go("/main/map")}
+            isDark={isDark}
           />
 
           <CircleButton
@@ -64,6 +67,7 @@ export const FabChat = () => {
             x={120}
             y={-50}
             onPress={() => go("/main/news")}
+            isDark={isDark}
           />
 
           <CircleButton
@@ -72,6 +76,7 @@ export const FabChat = () => {
             x={-80}
             y={40}
             onPress={() => go("/chat/inbox")}
+            isDark={isDark}
           />
 
           <CircleButton
@@ -80,6 +85,7 @@ export const FabChat = () => {
             x={80}
             y={40}
             onPress={() => go("/main/perfil")}
+            isDark={isDark}
           />
         </>
       )}
@@ -90,7 +96,7 @@ export const FabChat = () => {
           style={[
             styles.fab,
             {
-              backgroundColor: isDark ? Colors.dark.tint : Colors.light.tint,
+              backgroundColor: isDark ? '#0a7ea4' : Colors.light.tint,
             },
           ]}
           onPress={() => setOpen((p) => !p)}
@@ -114,12 +120,14 @@ const CircleButton = ({
   x,
   y,
   onPress,
+  isDark,
 }: {
   icon: string;
   label: string;
   x: number;
   y: number;
   onPress: () => void;
+  isDark: boolean;
 }) => (
   <View
     style={[
@@ -127,10 +135,30 @@ const CircleButton = ({
       { transform: [{ translateX: x }, { translateY: y }] },
     ]}
   >
-    <TouchableOpacity style={styles.circleBtn} onPress={onPress}>
-      <MaterialIcons name={icon as any} size={28} color="#1257a0" />
+    <TouchableOpacity 
+      style={[
+        styles.circleBtn, 
+        { backgroundColor: isDark ? '#2a2a3e' : 'white' }
+      ]} 
+      onPress={onPress}
+    >
+      <MaterialIcons 
+        name={icon as any} 
+        size={28} 
+        color={isDark ? '#4a9eff' : '#1257a0'} 
+      />
     </TouchableOpacity>
-    <Text style={styles.circleLabel}>{label}</Text>
+    <Text 
+      style={[
+        styles.circleLabel,
+        { 
+          backgroundColor: isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.55)',
+          color: isDark ? '#000' : '#fff'
+        }
+      ]}
+    >
+      {label}
+    </Text>
   </View>
 );
 
@@ -166,20 +194,21 @@ const styles = StyleSheet.create({
     width: 65,
     height: 65,
     borderRadius: 40,
-    backgroundColor: "white",
     justifyContent: "center",
     alignItems: "center",
     elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
   circleLabel: {
     marginTop: 6,
     fontSize: 13,
     fontWeight: "700",
-    // 🔹 “pill” para que el texto no se mezcle con lo de atrás
+    // 🔹 "pill" para que el texto no se mezcle con lo de atrás
     paddingHorizontal: 10,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    color: "#fff",
   },
 });

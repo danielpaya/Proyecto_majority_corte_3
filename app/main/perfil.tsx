@@ -22,6 +22,7 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { AvatarPreview } from '@/components/AvatarPreview';
 import { catalog_tmplx01 } from '../data/avatarCatalog';
 import type { AvatarLayer } from '../data/avatarCatalog';
+import { FabChat } from '@/components/FabChat';
 
 export default function PerfilScreen() {
   const { profile, updateProfile, refreshProfile } = useAuth();
@@ -373,6 +374,7 @@ export default function PerfilScreen() {
           </ThemedView>
         </ThemedView>
       </ScrollView>
+      <FabChat />
     </SafeAreaView>
   );
 }

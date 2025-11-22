@@ -1,10 +1,11 @@
 // app/onboarding/adulthood.tsx (fragmento clave)
-import React from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Button } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, ScrollView, Pressable, StyleSheet, Button, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAdulthoodQuestions } from '../../hooks/useAdulthoodQuestions';
 import { useAuth } from '../../contexts/AuthContext';
 import { router } from 'expo-router';
+import { saveAdulthoodAnswers, type AdulthoodAnswerInput } from '../data/adulthoodApi';
 
 
 const OPTION_LABEL: Record<'yes'|'in_progress'|'no'|'na', string> = {
@@ -24,6 +25,41 @@ export default function Adulthood() {
     gender: profile?.gender ?? null,
     birth_date: profile?.birth_date ?? null,
   });
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleFinish = async () => {
+    if (!profile?.id) {
+      Alert.alert('Sesion requerida', 'Inicia sesion nuevamente para continuar.');
+      return;
+    }
+
+    const payload = questions
+      .map((question) => {
+        const userAnswer = answers[question.slug];
+        if (!userAnswer) return null;
+        return {
+          question_id: question.id,
+          question_slug: question.slug,
+          answer: userAnswer,
+        };
+      })
+      .filter(Boolean) as AdulthoodAnswerInput[];
+
+    try {
+      setSubmitting(true);
+      if (payload.length > 0) {
+        await saveAdulthoodAnswers(profile.id, payload);
+      }
+      await markOnboardingComplete(true);
+      router.replace('../main/home');
+    } catch (err: any) {
+      console.log('[Adulthood] finish error', err);
+      const message = err?.message ?? 'No se pudo guardar tus respuestas.';
+      Alert.alert('Error', message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -61,14 +97,7 @@ export default function Adulthood() {
         ))}
 
         <View style={{ height: 24 }} />
-        <Button
-          title="Finalizar"
-          onPress={async () => {
-            // TODO: calcular y guardar score si lo necesitas
-            await markOnboardingComplete(true);
-            router.replace('../main/home'); // o la ruta que quieras abrir luego
-          }}
-        />
+        <Button title={submitting ? 'Guardando...' : 'Finalizar'} disabled={submitting} onPress={handleFinish} />
         <View style={{ height: 24 }} />
       </ScrollView>
     </SafeAreaView>

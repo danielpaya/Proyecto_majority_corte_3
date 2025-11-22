@@ -2,7 +2,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
-  Text,
   FlatList,
   TouchableOpacity,
   RefreshControl,
@@ -12,9 +11,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { listThreads } from '@/app/data/chatApi';
 import type { ChatThread } from '@/app/types/chat';
+import { FabChat } from '@/components/FabChat';
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { Colors } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function ChatInboxScreen() {
   const router = useRouter();
+  const theme = useColorScheme();
+  const isDark = theme === 'dark';
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -53,28 +59,28 @@ export default function ChatInboxScreen() {
         style={styles.threadItem}
         onPress={() => router.push(`/chat/conversation/${item.id}`)}
       >
-        <View style={styles.avatarCircle}>
-          <Text style={styles.avatarInitial}>
+        <View style={[styles.avatarCircle, { backgroundColor: isDark ? '#2a2a3e' : '#dfe6ff' }]}>
+          <ThemedText style={[styles.avatarInitial, { color: isDark ? '#4a9eff' : '#4450aa' }]}>
             {item.character === 'aria' ? 'A' : item.character === 'max' ? 'M' : 'L'}
-          </Text>
+          </ThemedText>
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.threadTitle}>{item.title || characterLabel}</Text>
-          <Text style={styles.threadSubtitle} numberOfLines={1}>
+          <ThemedText type="defaultSemiBold" style={styles.threadTitle}>{item.title || characterLabel}</ThemedText>
+          <ThemedText style={styles.threadSubtitle} numberOfLines={1}>
             {subtitle}
-          </Text>
+          </ThemedText>
         </View>
       </TouchableOpacity>
     );
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.container}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: isDark ? Colors.dark.background : Colors.light.background }]}>
+      <ThemedView style={styles.container}>
         <View style={styles.headerRow}>
-          <Text style={styles.headerTitle}>Tus chats</Text>
+          <ThemedText type="title" style={styles.headerTitle}>Tus chats</ThemedText>
           <TouchableOpacity onPress={() => router.push('/chat/new')}>
-            <Text style={styles.headerAction}>Nuevo chat</Text>
+            <ThemedText style={[styles.headerAction, { color: isDark ? '#4a9eff' : '#4450aa' }]}>Nuevo chat</ThemedText>
           </TouchableOpacity>
         </View>
 
@@ -89,12 +95,13 @@ export default function ChatInboxScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={loadThreads} />
           }
           ListEmptyComponent={
-            <Text style={styles.emptyText}>
-              Aún no tienes conversaciones. Toca “Nuevo chat” para hablar con Aria.
-            </Text>
+            <ThemedText style={styles.emptyText}>
+              Aún no tienes conversaciones. Toca "Nuevo chat" para hablar con Aria.
+            </ThemedText>
           }
         />
-      </View>
+      </ThemedView>
+      <FabChat />
     </SafeAreaView>
   );
 }
@@ -114,7 +121,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   headerTitle: { fontSize: 20, fontWeight: '700' },
-  headerAction: { fontSize: 14, fontWeight: '500', color: '#4450aa' },
+  headerAction: { fontSize: 14, fontWeight: '500' },
   threadItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -125,13 +132,12 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#dfe6ff',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarInitial: { fontSize: 20, fontWeight: '700', color: '#4450aa' },
-  threadTitle: { fontSize: 15, fontWeight: '600', marginBottom: 2 },
-  threadSubtitle: { fontSize: 13, color: '#666' },
+  avatarInitial: { fontSize: 20, fontWeight: '700' },
+  threadTitle: { fontSize: 15, marginBottom: 2 },
+  threadSubtitle: { fontSize: 13, opacity: 0.7 },
   emptyContainer: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
-  emptyText: { textAlign: 'center', color: '#777', fontSize: 14 },
+  emptyText: { textAlign: 'center', opacity: 0.7, fontSize: 14 },
 });

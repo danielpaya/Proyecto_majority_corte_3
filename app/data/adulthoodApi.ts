@@ -24,6 +24,17 @@ export type ProfileLite = {
   // country?: string | null; // si luego lo añades al perfil
 };
 
+export type AdulthoodAnswerInput = {
+  question_id: string;
+  question_slug: string;
+  answer: Answer;
+};
+
+type AdulthoodAnswerRow = {
+  question_slug: string;
+  answer: Answer;
+};
+
 export async function fetchQuestions(): Promise<RawQuestion[]> {
   const { data, error } = await supabase
     .from('adulthood_questions')
@@ -34,4 +45,57 @@ export async function fetchQuestions(): Promise<RawQuestion[]> {
 
   if (error) throw error;
   return data ?? [];
+}
+
+export function normalizeAdulthoodSlug(value?: string | null): string | null {
+  if (!value) return null;
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '');
+}
+
+export async function saveAdulthoodAnswers(
+  userId: string,
+  entries: AdulthoodAnswerInput[]
+) {
+  if (!userId || entries.length === 0) return;
+
+  const rows = entries.map((entry) => ({
+    user_id: userId,
+    question_id: entry.question_id,
+    question_slug: normalizeAdulthoodSlug(entry.question_slug) ?? entry.question_slug,
+    answer: entry.answer,
+  }));
+
+  const { error } = await supabase
+    .from('adulthood_answers')
+    .upsert(rows, { onConflict: 'user_id,question_id' });
+
+  if (error) throw error;
+}
+
+export async function fetchUserAdulthoodAnswers(
+  userId: string
+): Promise<Record<string, Answer>> {
+  if (!userId) return {};
+
+  const { data, error } = await supabase
+    .from('adulthood_answers')
+    .select('question_slug, answer')
+    .eq('user_id', userId)
+    .returns<AdulthoodAnswerRow[]>();
+
+  if (error) throw error;
+
+  const map: Record<string, Answer> = {};
+  for (const row of data ?? []) {
+    const norm = normalizeAdulthoodSlug(row.question_slug);
+    if (norm) {
+      map[norm] = row.answer;
+    }
+  }
+  return map;
 }

@@ -9,6 +9,7 @@ import { supabase } from '../../utils/supabase';
 import { AvatarPreview } from '../../components/AvatarPreview';
 import { catalog_tmplx01 } from '../data/avatarCatalog';
 import type { AvatarLayer } from '../data/avatarCatalog';
+import { FabChat } from '@/components/FabChat';
 
 /* =========================
    Tipos estrictos del SELECT
@@ -181,6 +182,7 @@ export default function HomeScreen() {
         ListEmptyComponent={null}
         contentContainerStyle={{ paddingBottom: 24 }}
       />
+      <FabChat />
     </SafeAreaView>
   );
 }
