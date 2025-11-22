@@ -459,16 +459,31 @@ export function AuthProvider({ children }: PropsWithChildren) {
         payload && typeof payload.total_points === 'number' ? payload.total_points : null;
       const awarded =
         payload && typeof payload.points_awarded === 'number' ? payload.points_awarded : 0;
+      const newLevel =
+        payload && typeof payload.new_level === 'number' ? payload.new_level : null;
 
+      // Actualizar el estado local inmediatamente
       setProfile((prev) => {
         if (!prev) return prev;
+        const updated: Partial<Profile> = {};
+        
         if (totalPoints !== null) {
-          return { ...prev, points: totalPoints };
+          updated.points = totalPoints;
+        } else {
+          updated.points = (prev.points ?? 0) + awarded;
         }
-        return { ...prev, points: (prev.points ?? 0) + awarded };
+        
+        if (newLevel !== null) {
+          updated.level = newLevel;
+        }
+        
+        return { ...prev, ...updated };
       });
+
+      // Refrescar el perfil desde la base de datos para asegurar sincronización
+      await refreshProfile();
     },
-    [user]
+    [user, refreshProfile]
   );
 
   /* ---------- updateProfile: actualizar campos básicos del perfil ---------- */

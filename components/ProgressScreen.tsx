@@ -13,36 +13,57 @@ import { catalog_tmplx01 } from '@/app/data/avatarCatalog';
 import type { AvatarLayer } from '@/app/data/avatarCatalog';
 import { FabChat } from '@/components/FabChat';
 
-/**
- * Calcula el XP necesario para el siguiente nivel
- * Fórmula: XP_necesario = nivel * 100 (escalable)
- */
-function getXPForNextLevel(level: number): number {
-  return level * 100;
-}
+const MAX_LEVEL = 100;
 
 /**
  * Calcula el XP del nivel actual (mínimo para estar en ese nivel)
+ * Fórmula: XP_total = 100 * (N-1) * N / 2
+ * Nivel 1: 0 puntos
+ * Nivel 2: 100 puntos (100 * 1 * 2 / 2)
+ * Nivel 3: 300 puntos (100 * 2 * 3 / 2)
+ * Nivel 4: 600 puntos (100 * 3 * 4 / 2)
+ * ...
+ * Nivel 100: 495,000 puntos (100 * 99 * 100 / 2)
  */
 function getXPForCurrentLevel(level: number): number {
-  if (level === 1) return 0;
-  let total = 0;
-  for (let i = 1; i < level; i++) {
-    total += i * 100;
-  }
-  return total;
+  if (level <= 1) return 0;
+  if (level > MAX_LEVEL) return 100 * (MAX_LEVEL - 1) * MAX_LEVEL / 2;
+  return 100 * (level - 1) * level / 2;
+}
+
+/**
+ * Calcula el XP necesario para el siguiente nivel
+ * Fórmula: XP_total_siguiente = 100 * N * (N+1) / 2
+ */
+function getXPForNextLevel(level: number): number {
+  if (level >= MAX_LEVEL) return 0; // No hay siguiente nivel
+  return 100 * level * (level + 1) / 2;
 }
 
 /**
  * Calcula el porcentaje de progreso hacia el siguiente nivel
+ * Si está en nivel máximo, retorna 0 (sin progreso)
  */
 function getProgressPercentage(points: number, level: number): number {
+  if (level >= MAX_LEVEL) return 0; // Nivel máximo, sin progreso
+  
   const currentLevelXP = getXPForCurrentLevel(level);
   const nextLevelXP = getXPForNextLevel(level);
   const xpInCurrentLevel = points - currentLevelXP;
-  const xpNeededForNext = nextLevelXP;
+  const xpNeededForNext = nextLevelXP - currentLevelXP;
+  
+  if (xpNeededForNext <= 0) return 0;
+  
   const percentage = Math.min(100, Math.max(0, (xpInCurrentLevel / xpNeededForNext) * 100));
   return percentage;
+}
+
+/**
+ * Obtiene el nombre del nivel (muestra "Nivel Máximo" para nivel 100)
+ */
+function getLevelDisplayName(level: number): string {
+  if (level >= MAX_LEVEL) return 'Nivel Máximo';
+  return `Nivel ${level}`;
 }
 
 export function ProgressScreen() {
@@ -76,16 +97,17 @@ export function ProgressScreen() {
     );
   }
 
-  const level = profile.level ?? 1;
+  const level = Math.min(profile.level ?? 1, MAX_LEVEL);
   const points = profile.points ?? 0;
   const coins = Math.floor(points / 10); // Asumiendo 1 moneda por cada 10 puntos
 
+  const isMaxLevel = level >= MAX_LEVEL;
   const currentLevelXP = getXPForCurrentLevel(level);
   const nextLevelXP = getXPForNextLevel(level);
   const xpInCurrentLevel = points - currentLevelXP;
-  const xpNeededForNext = nextLevelXP;
+  const xpNeededForNext = isMaxLevel ? 0 : (nextLevelXP - currentLevelXP);
   const progressPercentage = getProgressPercentage(points, level);
-  const xpRemaining = Math.max(0, xpNeededForNext - xpInCurrentLevel);
+  const xpRemaining = isMaxLevel ? 0 : Math.max(0, xpNeededForNext - xpInCurrentLevel);
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: isDark ? Colors.dark.background : Colors.light.background }]}>
@@ -116,43 +138,61 @@ export function ProgressScreen() {
             style={styles.levelGradient}>
             <ThemedText style={styles.levelLabel}>NIVEL ACTUAL</ThemedText>
             <ThemedText style={[styles.levelNumber, { color: '#fff' }]}>
-              {level}
+              {isMaxLevel ? 'MAX' : level}
             </ThemedText>
             <ThemedText style={[styles.levelSubtext, { color: '#fff', opacity: 0.9 }]}>
               {points.toLocaleString()} XP totales
             </ThemedText>
+            {isMaxLevel && (
+              <ThemedText style={[styles.levelSubtext, { color: '#fff', opacity: 0.8, fontSize: 14, marginTop: 4 }]}>
+                Has alcanzado el nivel máximo
+              </ThemedText>
+            )}
           </LinearGradient>
         </ThemedView>
 
         {/* Barra de Progreso XP */}
-        <ThemedView style={styles.progressCard}>
-          <View style={styles.progressHeader}>
-            <ThemedText type="defaultSemiBold" style={styles.progressTitle}>
-              Progreso al Nivel {level + 1}
+        {!isMaxLevel ? (
+          <ThemedView style={styles.progressCard}>
+            <View style={styles.progressHeader}>
+              <ThemedText type="defaultSemiBold" style={styles.progressTitle}>
+                Progreso al Nivel {level + 1}
+              </ThemedText>
+              <ThemedText style={styles.progressPercentage}>
+                {progressPercentage.toFixed(1)}%
+              </ThemedText>
+            </View>
+            
+            <View style={[styles.progressBarContainer, { backgroundColor: isDark ? '#2a2a3e' : '#e0e0e0' }]}>
+              <LinearGradient
+                colors={['#667eea', '#764ba2']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[styles.progressBarFill, { width: `${progressPercentage}%` }]}
+              />
+            </View>
+            
+            <View style={styles.progressStats}>
+              <ThemedText style={styles.progressStatText}>
+                {xpInCurrentLevel.toLocaleString()} / {xpNeededForNext.toLocaleString()} XP
+              </ThemedText>
+              <ThemedText style={styles.progressStatText}>
+                Faltan {xpRemaining.toLocaleString()} XP
+              </ThemedText>
+            </View>
+          </ThemedView>
+        ) : (
+          <ThemedView style={styles.progressCard}>
+            <View style={styles.progressHeader}>
+              <ThemedText type="defaultSemiBold" style={styles.progressTitle}>
+                Nivel Máximo Alcanzado
+              </ThemedText>
+            </View>
+            <ThemedText style={[styles.progressStatText, { textAlign: 'center', marginTop: 8 }]}>
+              Has alcanzado el nivel máximo. Los puntos se siguen acumulando pero no hay más niveles disponibles.
             </ThemedText>
-            <ThemedText style={styles.progressPercentage}>
-              {progressPercentage.toFixed(1)}%
-            </ThemedText>
-          </View>
-          
-          <View style={[styles.progressBarContainer, { backgroundColor: isDark ? '#2a2a3e' : '#e0e0e0' }]}>
-            <LinearGradient
-              colors={['#667eea', '#764ba2']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={[styles.progressBarFill, { width: `${progressPercentage}%` }]}
-            />
-          </View>
-          
-          <View style={styles.progressStats}>
-            <ThemedText style={styles.progressStatText}>
-              {xpInCurrentLevel.toLocaleString()} / {xpNeededForNext.toLocaleString()} XP
-            </ThemedText>
-            <ThemedText style={styles.progressStatText}>
-              Faltan {xpRemaining.toLocaleString()} XP
-            </ThemedText>
-          </View>
-        </ThemedView>
+          </ThemedView>
+        )}
 
         {/* Monedas */}
         <ThemedView style={styles.coinsCard}>
@@ -184,8 +224,8 @@ export function ProgressScreen() {
               style={styles.statItem}
               lightColor="#f5f5f5"
               darkColor="#2a2a3e">
-              <ThemedText style={styles.statValue}>{level}</ThemedText>
-              <ThemedText style={styles.statLabel}>Nivel</ThemedText>
+              <ThemedText style={styles.statValue}>{isMaxLevel ? 'MAX' : level}</ThemedText>
+              <ThemedText style={styles.statLabel}>{getLevelDisplayName(level)}</ThemedText>
             </ThemedView>
             
             <ThemedView 
@@ -217,20 +257,22 @@ export function ProgressScreen() {
         </ThemedView>
 
         {/* Información de Próximo Nivel */}
-        <ThemedView 
-          style={styles.nextLevelCard}
-          lightColor="#f9f9f9"
-          darkColor="#1a1a2e">
-          <ThemedText type="defaultSemiBold" style={styles.nextLevelTitle}>
-            Próximo Nivel
-          </ThemedText>
-          <ThemedText style={styles.nextLevelText}>
-            Nivel {level + 1} requiere {xpNeededForNext.toLocaleString()} XP totales
-          </ThemedText>
-          <ThemedText style={styles.nextLevelSubtext}>
-            Te faltan {xpRemaining.toLocaleString()} XP para subir de nivel
-          </ThemedText>
-        </ThemedView>
+        {!isMaxLevel && (
+          <ThemedView 
+            style={styles.nextLevelCard}
+            lightColor="#f9f9f9"
+            darkColor="#1a1a2e">
+            <ThemedText type="defaultSemiBold" style={styles.nextLevelTitle}>
+              Próximo Nivel
+            </ThemedText>
+            <ThemedText style={styles.nextLevelText}>
+              Nivel {level + 1} requiere {nextLevelXP.toLocaleString()} XP totales
+            </ThemedText>
+            <ThemedText style={styles.nextLevelSubtext}>
+              Te faltan {xpRemaining.toLocaleString()} XP para subir de nivel
+            </ThemedText>
+          </ThemedView>
+        )}
 
       </ScrollView>
       <FabChat />
