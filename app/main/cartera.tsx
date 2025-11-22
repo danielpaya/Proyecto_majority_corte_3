@@ -7,6 +7,7 @@ import {
   Alert,
   ActivityIndicator,
   TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -47,6 +48,7 @@ export default function CarteraScreen() {
   const [cardCvv, setCardCvv] = useState('');
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [processingPayment, setProcessingPayment] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadWalletData = useCallback(async () => {
     if (!profile?.id) {
@@ -55,7 +57,7 @@ export default function CarteraScreen() {
     }
 
     try {
-      setLoading(true);
+      if (!refreshing) setLoading(true);
       
       // Cargar balance de la cartera
       const { data: profileData, error: profileError } = await supabase
@@ -86,8 +88,15 @@ export default function CarteraScreen() {
       console.error('[Cartera] Error cargando datos:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [profile?.id]);
+  }, [profile?.id, refreshing]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refreshProfile();
+    await loadWalletData();
+  }, [refreshProfile, loadWalletData]);
 
   useEffect(() => {
     loadWalletData();
@@ -260,7 +269,10 @@ export default function CarteraScreen() {
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }>
         
         {/* Balance de cartera */}
         <ThemedView

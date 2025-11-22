@@ -1,17 +1,17 @@
-import React, { useMemo } from 'react';
-import { StyleSheet, View, ScrollView, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import React, { useMemo } from 'react';
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import type { AvatarLayer } from '@/app/data/avatarCatalog';
+import { catalog_tmplx01 } from '@/app/data/avatarCatalog';
+import { AvatarPreview } from '@/components/AvatarPreview';
+import { FabChat } from '@/components/FabChat';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { useAuth } from '@/contexts/AuthContext';
 import { Colors } from '@/constants/theme';
+import { useAuth } from '@/contexts/AuthContext';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { AvatarPreview } from '@/components/AvatarPreview';
-import { catalog_tmplx01 } from '@/app/data/avatarCatalog';
-import type { AvatarLayer } from '@/app/data/avatarCatalog';
-import { FabChat } from '@/components/FabChat';
 
 const MAX_LEVEL = 100;
 
@@ -70,6 +70,16 @@ export function ProgressScreen() {
   const { profile, refreshProfile } = useAuth();
   const theme = useColorScheme();
   const isDark = theme === 'dark';
+  const [refreshing, setRefreshing] = React.useState(false);
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refreshProfile();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshProfile]);
 
   // Avatar seleccionado
   const avatarSelected = useMemo(() => {
@@ -114,7 +124,10 @@ export function ProgressScreen() {
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }>
         
         {/* Header con Avatar */}
         <ThemedView style={styles.header}>
@@ -340,7 +353,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   levelNumber: {
-    fontSize: 64,
+    fontSize: 32,
     fontWeight: 'bold',
     marginBottom: 4,
   },

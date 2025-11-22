@@ -2,8 +2,8 @@ import { useCustomAlert } from '@/components/CustomAlert';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { ActivityIndicator, FlatList, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { FabChat } from '@/components/FabChat';
@@ -96,6 +96,7 @@ export default function NewsScreen() {
   const [readStatus, setReadStatus] = useState<Record<string, string>>({});
   const [markingReadId, setMarkingReadId] = useState<string | null>(null);
   const [showOnlyUnread, setShowOnlyUnread] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const unreadCount = useMemo(() => {
     return news.reduce((acc, item) => {
       if (!item.id) return acc;
@@ -157,7 +158,7 @@ export default function NewsScreen() {
   }
 
   async function fetchNews() {
-    setLoading(true);
+    if (!refreshing) setLoading(true);
     try {
       let query = supabase.from('news').select('*').order('created_at', { ascending: false, nullsFirst: false });
       // si no es admin, solo mostrar noticias publicadas
@@ -184,8 +185,15 @@ export default function NewsScreen() {
       setReadStatus({});
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    await refreshProfile();
+    await fetchNews();
+  }, [refreshProfile]);
 
   async function handleCreate() {
     if (!isAdmin) return;
@@ -375,7 +383,12 @@ export default function NewsScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12 }}>
+      <ScrollView 
+        style={{ flex: 1 }} 
+        contentContainerStyle={{ padding: 12 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }>
         {!isAdmin && (
           <View style={styles.userPanel}>
             <Text style={styles.userPanelTitle}>Tus noticias</Text>
