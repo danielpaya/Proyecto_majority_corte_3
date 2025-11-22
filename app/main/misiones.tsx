@@ -51,6 +51,10 @@ type MissionRow = {
   location_label?: string | null;
   is_system?: boolean | null;
   created_by?: string | null;
+  prerequisite_mission?: {
+    id: string;
+    title: string;
+  } | null;
 };
 
 type UserMissionRow = {
@@ -93,6 +97,7 @@ export default function MisionesScreen() {
   const [missionLocation, setMissionLocation] = useState<MissionCoordinate | null>(null);
   const [selectedMission, setSelectedMission] = useState<MissionRow | null>(null);
   const [showMissionModal, setShowMissionModal] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'incomplete' | 'with_prerequisites'>('all');
 
   const profileId = profile?.id ?? null;
   const resetMissionForm = useCallback(() => {
@@ -166,7 +171,43 @@ export default function MisionesScreen() {
         if (baseErr) throw baseErr;
         unlocked = data ?? [];
       }
-      const allMissions = unlocked ?? [];
+      
+      // Cargar información de prerequisitos para todas las misiones
+      const missionIds = (unlocked ?? []).map(m => m.id);
+      let prerequisitesMap: Record<string, { id: string; title: string }> = {};
+      
+      if (missionIds.length > 0) {
+        try {
+          const { data: depsData, error: depsErr } = await supabase
+            .from('mission_dependencies')
+            .select(`
+              mission_id,
+              required_mission:required_mission_id (
+                id,
+                title
+              )
+            `)
+            .in('mission_id', missionIds);
+          
+          if (!depsErr && depsData) {
+            for (const dep of depsData) {
+              const missionId = dep.mission_id;
+              const required = dep.required_mission as { id: string; title: string } | null;
+              if (missionId && required) {
+                prerequisitesMap[missionId] = required;
+              }
+            }
+          }
+        } catch (depsError) {
+          console.log('[Misiones] error loading prerequisites', depsError);
+        }
+      }
+      
+      // Agregar información de prerequisitos a las misiones
+      const allMissions = (unlocked ?? []).map(mission => ({
+        ...mission,
+        prerequisite_mission: prerequisitesMap[mission.id] || null,
+      }));
 
       const { data: completedRows, error: completedErr } = await supabase
         .from('user_misiones')
@@ -279,25 +320,31 @@ export default function MisionesScreen() {
       /**
        * Filtra misiones basándose en:
        * 1. Misiones de admin: siempre mostrar
-       * 2. Misiones completadas: no mostrar en sugeridas
+       * 2. Misiones completadas: no mostrar en sugeridas (a menos que el filtro sea "completadas")
        * 3. Respuestas de adultez:
        *    - Solo mostrar misiones relacionadas con preguntas de adultez
        *    - 'yes' o 'na': NO mostrar (ya está resuelto)
        *    - 'no' o 'in_progress': SÍ mostrar (necesita trabajo)
        *    - Sin respuesta relacionada: NO mostrar (solo misiones relacionadas con preguntas)
        */
-      const filteredMissions = allMissions.filter((mission) => {
+      const baseFilteredMissions = allMissions.filter((mission) => {
         if (!mission) return false;
 
         const isAdminMission = Boolean(mission.created_by);
+        const isCompleted = completedSet.has(mission.id);
         
-        // Las misiones de admin siempre se muestran
-        if (isAdminMission) {
+        // Si el filtro es "completadas", incluir todas las completadas
+        if (filterStatus === 'completed' && isCompleted) {
+          return true;
+        }
+        
+        // Las misiones de admin siempre se muestran (excepto si el filtro es específico)
+        if (isAdminMission && filterStatus !== 'completed') {
           return true;
         }
 
-        // No mostrar misiones ya completadas
-        if (completedSet.has(mission.id)) {
+        // No mostrar misiones ya completadas en otros filtros
+        if (isCompleted && filterStatus !== 'completed') {
           return false;
         }
 
@@ -315,7 +362,17 @@ export default function MisionesScreen() {
         return answer === 'no' || answer === 'in_progress';
       });
 
-      setSuggested(filteredMissions);
+      // Aplicar filtros adicionales según el estado seleccionado
+      let finalFilteredMissions = baseFilteredMissions;
+      
+      if (filterStatus === 'incomplete') {
+        finalFilteredMissions = baseFilteredMissions.filter(m => !completedSet.has(m.id));
+      } else if (filterStatus === 'with_prerequisites') {
+        finalFilteredMissions = baseFilteredMissions.filter(m => m.prerequisite_mission !== null);
+      }
+      // 'all' y 'completed' ya están manejados en baseFilteredMissions
+
+      setSuggested(finalFilteredMissions);
 
       const yoursQ = supabase
         .from('user_misiones')
@@ -343,12 +400,37 @@ export default function MisionesScreen() {
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, [loadData, filterStatus]);
 
   const takenMissionIds = useMemo(
     () => new Set(myMissions.map((m) => m.mission_id)),
     [myMissions]
   );
+
+  // Estado para misiones completadas (para verificar prerequisitos)
+  const [completedMissionIdsSet, setCompletedMissionIdsSet] = useState<Set<string>>(new Set());
+
+  // Cargar misiones completadas
+  useEffect(() => {
+    if (!profileId) {
+      setCompletedMissionIdsSet(new Set());
+      return;
+    }
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('user_misiones')
+          .select('mission_id')
+          .eq('user_id', profileId)
+          .eq('status', 'completada');
+        if (!error && data) {
+          setCompletedMissionIdsSet(new Set(data.map(row => row.mission_id)));
+        }
+      } catch (err) {
+        console.log('[Misiones] error loading completed missions', err);
+      }
+    })();
+  }, [profileId, loadData]);
 
   const handleViewMissionLocation = useCallback(
     (mission?: MissionRow | UserMissionRow['missions'] | null) => {
@@ -372,6 +454,19 @@ export default function MisionesScreen() {
 
   const handleAcceptMission = useCallback(
     async (missionId: string) => {
+      // Verificar prerequisitos antes de intentar aceptar
+      const mission = suggested.find(m => m.id === missionId);
+      if (mission?.prerequisite_mission) {
+        const prerequisiteId = mission.prerequisite_mission.id;
+        if (!completedMissionIdsSet.has(prerequisiteId)) {
+          Alert.alert(
+            'Prerequisito requerido',
+            `Debes completar primero la misión: ${mission.prerequisite_mission.title}`
+          );
+          return;
+        }
+      }
+
       try {
         setAcceptingId(missionId);
         await takeMission(missionId);
@@ -381,10 +476,11 @@ export default function MisionesScreen() {
         const message = err?.message ?? 'No se pudo aceptar la mision.';
         Alert.alert('Error', message);
       } finally {
+        // Asegurar que siempre se resetee el estado, incluso si hay un error
         setAcceptingId(null);
       }
     },
-    [loadData, takeMission]
+    [loadData, takeMission, suggested, completedMissionIdsSet]
   );
 
   const handleCompleteMission = useCallback(
@@ -689,6 +785,22 @@ export default function MisionesScreen() {
                           {(m.category ?? 'General') + ` - ${m.points} pts`}{' '}
                           {m.difficulty ? `(D${m.difficulty})` : ''}
                         </ThemedText>
+                        {m.prerequisite_mission && (
+                          <ThemedView
+                            style={[styles.prerequisiteBadge, { borderColor: isDark ? '#4a9eff' : '#0a7aff' }]}
+                            lightColor="#e6f0ff"
+                            darkColor="#1a2a3e">
+                            <MaterialIcons
+                              name="lock"
+                              size={16}
+                              color={isDark ? '#4a9eff' : '#0a7aff'}
+                              style={{ marginRight: 4 }}
+                            />
+                            <ThemedText style={[styles.prerequisiteText, { color: isDark ? '#4a9eff' : '#0a7aff' }]}>
+                              Requiere: {m.prerequisite_mission.title}
+                            </ThemedText>
+                          </ThemedView>
+                        )}
                       </TouchableOpacity>
                       <View style={{ marginTop: 12, gap: 8 }}>
                         <ThemedButton
@@ -699,7 +811,10 @@ export default function MisionesScreen() {
                         />
                         <ThemedButton
                           title={alreadyTaken ? 'Ya aceptada' : 'Aceptar mision'}
-                          disabled={alreadyTaken}
+                          disabled={
+                            alreadyTaken ||
+                            (m.prerequisite_mission && !completedMissionIdsSet.has(m.prerequisite_mission.id))
+                          }
                           loading={acceptingId === m.id}
                           onPress={() => handleAcceptMission(m.id)}
                         />
@@ -791,6 +906,28 @@ export default function MisionesScreen() {
                         )}
                       </View>
 
+                      {selectedMission.prerequisite_mission && (
+                        <ThemedView
+                          style={[styles.modalPrerequisiteBadge, { borderColor: isDark ? '#4a9eff' : '#0a7aff' }]}
+                          lightColor="#e6f0ff"
+                          darkColor="#1a2a3e">
+                          <MaterialIcons
+                            name="lock"
+                            size={20}
+                            color={isDark ? '#4a9eff' : '#0a7aff'}
+                            style={{ marginRight: 8 }}
+                          />
+                          <View style={{ flex: 1 }}>
+                            <ThemedText style={[styles.modalPrerequisiteLabel, { color: isDark ? '#4a9eff' : '#0a7aff' }]}>
+                              Prerequisito requerido:
+                            </ThemedText>
+                            <ThemedText style={[styles.modalPrerequisiteText, { color: isDark ? '#4a9eff' : '#0a7aff' }]}>
+                              {selectedMission.prerequisite_mission.title}
+                            </ThemedText>
+                          </View>
+                        </ThemedView>
+                      )}
+
                       {selectedMission.description ? (
                         <ThemedText style={styles.modalDescription}>
                           {selectedMission.description}
@@ -825,7 +962,11 @@ export default function MisionesScreen() {
                               />
                               <ThemedButton
                                 title={alreadyTaken ? 'Ya aceptada' : 'Aceptar mision'}
-                                disabled={alreadyTaken}
+                                disabled={
+                                  alreadyTaken ||
+                                  (selectedMission?.prerequisite_mission &&
+                                    !completedMissionIdsSet.has(selectedMission.prerequisite_mission.id))
+                                }
                                 loading={selectedMission ? acceptingId === selectedMission.id : false}
                                 onPress={() => {
                                   if (selectedMission) {
@@ -964,6 +1105,66 @@ const styles = StyleSheet.create({
   },
   modalButtons: {
     gap: 8,
+  },
+  filtersContainer: {
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  filtersRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  filterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    backgroundColor: '#f5f5f5',
+  },
+  filterButtonActive: {
+    backgroundColor: '#0a7aff',
+    borderColor: '#0a7aff',
+  },
+  filterText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+  },
+  filterTextActive: {
+    color: '#fff',
+  },
+  prerequisiteBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  prerequisiteText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  modalPrerequisiteBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  modalPrerequisiteLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+    opacity: 0.8,
+  },
+  modalPrerequisiteText: {
+    fontSize: 15,
+    fontWeight: '700',
   },
 });
 
